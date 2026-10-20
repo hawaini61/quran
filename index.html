@@ -320,47 +320,61 @@ function saveDB(){
   persistSession();
 }
 
-/* ---------- SESI PERSISTEN ---------- */
+/* ================================================================
+   SESI PERSISTEN + HISTORY BROWSER
+   ================================================================ */
 function loadSession(){
   try {
     var raw = localStorage.getItem(LS_SESS);
     if (raw){
       var s = JSON.parse(raw);
       if (s && s.role){
-        return { role: s.role, page: s.page || null, stack: Array.isArray(s.stack) ? s.stack : [] };
+        return { role: s.role, page: s.page || null };
       }
     }
   } catch (e){}
-  return { role: 'user', page: null, stack: [] };
+  return { role: 'user', page: null };
 }
 function persistSession(){
-  try { localStorage.setItem(LS_SESS, JSON.stringify(DB.session)); } catch (e){}
+  try {
+    localStorage.setItem(LS_SESS, JSON.stringify({
+      role: DB.session && DB.session.role,
+      page: DB.session && DB.session.page
+    }));
+  } catch (e){}
 }
 function navigate(role, page){
-  var cur = DB.session || { role: 'user', page: null, stack: [] };
-  var stack = (cur.stack || []).slice();
-  stack.push({ role: cur.role || 'user', page: cur.page || null });
-  if (stack.length > 40) stack = stack.slice(-40);
-  DB.session = { role: role, page: page || null, stack: stack };
+  if (DB.session && DB.session.role === role && DB.session.page === (page || null)){
+    return; /* sudah di halaman tujuan */
+  }
+  DB.session = { role: role, page: page || null };
   persistSession();
+  var cur = history.state;
+  var depth = (cur && cur.app === 'odhj' && cur.depth != null) ? cur.depth : 0;
+  history.pushState({ app: 'odhj', role: role, page: page || null, depth: depth + 1 }, '');
   render();
 }
 function goBack(){
-  var cur = DB.session || { role: 'user', page: null, stack: [] };
-  var stack = (cur.stack || []).slice();
-  var prev = stack.pop();
-  if (prev && prev.role){
-    DB.session = { role: prev.role, page: prev.page || null, stack: stack };
-  } else {
-    DB.session = { role: 'user', page: null, stack: [] };
+  var cur = history.state;
+  if (cur && cur.app === 'odhj' && cur.depth > 0){
+    history.back();
+  } else if (!cur || cur.app !== 'odhj'){
+    /* Tidak ada state app — pulang ke form user */
+    DB.session = { role: 'user', page: null };
+    persistSession();
+    render();
   }
-  persistSession();
-  render();
 }
 function resetToUser(){
-  DB.session = { role: 'user', page: null, stack: [] };
+  DB.session = { role: 'user', page: null };
   persistSession();
-  render();
+  var cur = history.state;
+  var depth = (cur && cur.app === 'odhj' && cur.depth > 0) ? cur.depth : 0;
+  if (depth > 0){
+    history.go(-depth);
+  } else {
+    render();
+  }
 }
 
 /* ---------- UI HELPERS ---------- */
@@ -709,7 +723,7 @@ function renderUserForm(){
   $('#app').innerHTML = html.join('');
   var app = $('#app'); if (app) app.setAttribute('data-ok', '1');
 
-  setSync(ONLINE ? 'synced' : 'offline');
+  setSync(ONLINE ? (pendingCount() ? 'pending' : 'synced') : 'offline');
 
   var btnTheme = $('#btnThemeUser');
   if (btnTheme) btnTheme.addEventListener('click', toggleTheme);
@@ -883,8 +897,13 @@ function renderLogin(){
       if (u === DB.settings.adminUser && p === DB.settings.adminPass){
         try { localStorage.setItem(LS_USER, u); } catch (e){}
         toast('Login admin berhasil', 'success');
-        DB.session = { role: 'admin', page: 'dashboard', stack: [{ role: 'guest', page: null }] };
+        /* Ganti state 'guest' dengan 'admin' agar tombol Back dari admin
+           langsung menuju form user (tidak mampir ke layar login lagi). */
+        var cur = history.state;
+        var depth = (cur && cur.app === 'odhj' && cur.depth != null) ? cur.depth : 1;
+        DB.session = { role: 'admin', page: 'dashboard' };
         persistSession();
+        history.replaceState({ app: 'odhj', role: 'admin', page: 'dashboard', depth: depth }, '');
         render();
       } else {
         $('#lgSpin').classList.add('hidden');
@@ -923,7 +942,7 @@ function renderAdmin(){
   html.push('</div></aside>');
   html.push('<div class="main">');
   html.push('<header class="topbar">');
-  html.push('<button class="icon-btn" id="btnBack" title="Kembali">◀</button>');
+  html.push('<button class="icon-btn" id="btnBack" title="Kembali (Alt+←)">◀</button>');
   html.push('<button class="icon-btn only-mobile" id="btnMenu">☰</button>');
   html.push('<div class="tb-title">' + (titles[page] || 'Dashboard') + '</div>');
   html.push('<div class="tb-right">');
@@ -1801,8 +1820,32 @@ function boot(){
   try {
     DB = loadCache();
     DB = migrate(DB);
-    DB.session = loadSession();   // ← sesi dipulihkan: refresh tidak balik ke login
+    DB.session = loadSession();
     applyTheme();
+
+    /* ---- Inisialisasi history browser ---- */
+    var curState = history.state;
+    if (!curState || curState.app !== 'odhj'){
+      if (DB.session.role && DB.session.role !== 'user'){
+        /* Sesi admin dipulihkan → taruh user sebagai base,
+           admin di atasnya agar tombol Back langsung menuju form user. */
+        history.replaceState({ app: 'odhj', role: 'user', page: null, depth: 0 }, '');
+        history.pushState({
+          app: 'odhj',
+          role: DB.session.role,
+          page: DB.session.page || null,
+          depth: 1
+        }, '');
+      } else {
+        history.replaceState({ app: 'odhj', role: 'user', page: null, depth: 0 }, '');
+        DB.session = { role: 'user', page: null };
+        persistSession();
+      }
+    } else {
+      DB.session = { role: curState.role || 'user', page: curState.page || null };
+      persistSession();
+    }
+
     render();
   } catch (e){
     console.error('boot error:', e);
@@ -1813,8 +1856,10 @@ function boot(){
     return;
   }
 
+  /* Hubungkan ke Supabase */
   setTimeout(initSupabase, 60);
 
+  /* Sinkron antar-tab pada browser yang sama */
   try {
     window.addEventListener('storage', function(e){
       if (e.key === LS_SESS){
@@ -1834,6 +1879,48 @@ function boot(){
 
   window.addEventListener('online', function(){
     if (sb){ flushQueue().then(function(){ return loadAll(false); }); }
+  });
+
+  /* ---- Keyboard shortcut ----
+     Alt+← / Cmd+[ / Cmd+←  ditangani browser → memicu popstate.
+     Backspace (di luar input) & Escape ditangani manual. */
+  document.addEventListener('keydown', function(e){
+    var t = e.target;
+    var tag = (t && t.tagName || '').toLowerCase();
+    var isField = ['input','textarea','select'].indexOf(tag) !== -1
+               || (t && t.isContentEditable);
+
+    if (e.key === 'Backspace' && !isField
+        && !e.metaKey && !e.ctrlKey && !e.altKey && !e.shiftKey){
+      e.preventDefault();
+      goBack();
+      return;
+    }
+
+    if (e.key === 'Escape'){
+      var modals = $$('.modal-bg');
+      if (modals.length){
+        modals.forEach(function(m){ m.remove(); });
+        e.preventDefault();
+        return;
+      }
+      if (!isField){
+        e.preventDefault();
+        goBack();
+      }
+      return;
+    }
+  });
+
+  /* ---- Tombol Back browser / gesture HP / Alt+← ---- */
+  window.addEventListener('popstate', function(e){
+    closeModal();
+    var st = e.state;
+    if (st && st.app === 'odhj'){
+      DB.session = { role: st.role || 'user', page: st.page || null };
+      persistSession();
+      render();
+    }
   });
 }
 
