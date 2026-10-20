@@ -147,8 +147,10 @@ html[data-theme="light"] .topbar{background:rgba(255,255,255,.75)}
 .grp-akhwat{background:rgba(236,72,153,.18);color:#ec4899}
 #print-root{display:none}
 .pr{background:#fff;color:#000;font-family:Arial,sans-serif;font-size:12px;padding:4px}
-.pr .pr-kop{display:flex;align-items:center;gap:16px;border-bottom:3px double #000;padding-bottom:10px}
-.pr .pr-kop img{width:74px;height:74px;object-fit:contain}
+.pr .pr-kop{border-bottom:3px double #000;padding-bottom:10px;margin-bottom:6px}
+.pr .pr-kop .kop-inner{display:flex;align-items:center;justify-content:center;gap:16px}
+.pr .pr-kop img{width:74px;height:74px;object-fit:contain;flex:0 0 auto}
+.pr .pr-kop .kop-text{text-align:center}
 .pr .pr-kop .l1{font-size:14px;font-weight:700}
 .pr .pr-kop .l2{font-size:18px;font-weight:800}
 .pr .pr-kop .l3{font-size:11.5px}
@@ -158,9 +160,10 @@ html[data-theme="light"] .topbar{background:rgba(255,255,255,.75)}
 .pr table{width:100%;border-collapse:collapse;font-size:11.5px}
 .pr th,.pr td{border:1px solid #333;padding:5px 7px}
 .pr th{background:#eee;text-align:center}
-.pr .ttd{margin-top:34px;display:flex;justify-content:flex-end}
-.pr .ttd div{text-align:center;width:220px}
+.pr .ttd{margin-top:34px;display:flex;justify-content:space-between;gap:24px;page-break-inside:avoid}
+.pr .ttd>div{text-align:center;flex:1;max-width:260px}
 .pr .ttd .sp{height:64px}
+.pr .ttd .ttd-name{border-top:1px solid #000;padding-top:3px;font-weight:600;min-height:18px}
 @media print{body{background:#fff}body::before{display:none!important}body>*{display:none!important}#print-root{display:block!important}@page{size:A4;margin:12mm}}
 @media (max-width:900px){.sidebar{position:fixed;left:0;top:0;z-index:50;transform:translateX(-102%);transition:transform .25s ease}.sidebar.open{transform:none}.only-mobile{display:grid}.content{padding:14px}}
 </style>
@@ -224,8 +227,7 @@ var STATUS_META = {
 var sb = null;
 var ONLINE = false;
 var DB = null;
-var _localActionAt = 0;   /* ← timestamp aksi user lokal */
-
+var _localActionAt = 0;
 function markLocal(){ _localActionAt = Date.now(); }
 
 /* ---------- HELPERS ---------- */
@@ -258,7 +260,13 @@ function defaultDB(){
     settings: {
       adminUser: 'admin', adminPass: 'hawen', theme: 'dark',
       years: [{ year: y, active: true }], activeYear: y,
-      kop: { line1: 'YAYASAN PENDIDIKAN ISLAM', line2: 'SEKOLAH ISLAM TERPADU', line3: 'Jl. Pendidikan No. 1, Indonesia', logo: '' }
+      kop: {
+        line1: 'YAYASAN PENDIDIKAN ISLAM',
+        line2: 'SEKOLAH ISLAM TERPADU',
+        line3: 'Jl. Pendidikan No. 1, Indonesia',
+        logo: '',
+        penanggungJawab: ''
+      }
     },
     guru: [], absensi: []
   };
@@ -278,7 +286,7 @@ function migrate(d){
   s.theme = s.theme || 'dark';
   if (!Array.isArray(s.years) || !s.years.length) s.years = [{ year: new Date().getFullYear(), active: true }];
   s.activeYear = s.activeYear || s.years[0].year;
-  s.kop = Object.assign({ line1: '', line2: '', line3: '', logo: '' }, s.kop || {});
+  s.kop = Object.assign({ line1: '', line2: '', line3: '', logo: '', penanggungJawab: '' }, s.kop || {});
   d.guru = Array.isArray(d.guru) ? d.guru : [];
   d.absensi = Array.isArray(d.absensi) ? d.absensi : [];
   return normalizeIds(d);
@@ -352,7 +360,6 @@ function busy(on, text){
   try { var t = document.getElementById('overlayText'); if (t) t.textContent = text; var o = document.getElementById('overlay'); if (o) o.classList.toggle('hidden', !on); } catch (e){}
 }
 function openModal(html, onMount){
-  /* pastikan hanya satu modal */
   $$('.modal-bg').forEach(function(m){ m.remove(); });
   var bg = document.createElement('div');
   bg.className = 'modal-bg';
@@ -399,7 +406,10 @@ function loadAll(initial){
       DB.settings.theme      = st.theme       || DB.settings.theme;
       DB.settings.activeYear = st.active_year || DB.settings.activeYear;
       if (Array.isArray(st.years) && st.years.length) DB.settings.years = st.years;
-      if (st.kop && typeof st.kop === 'object') DB.settings.kop = Object.assign(DB.settings.kop, st.kop);
+      if (st.kop && typeof st.kop === 'object'){
+        DB.settings.kop = Object.assign(DB.settings.kop, st.kop);
+        if (typeof DB.settings.kop.penanggungJawab === 'undefined') DB.settings.kop.penanggungJawab = '';
+      }
     }
     DB.guru = (res[1].data || []).map(function(r){ return { id: r.id, nama: r.nama, jk: r.jk }; });
     DB.absensi = (res[2].data || []).map(function(r){
@@ -416,7 +426,7 @@ function subscribeRealtime(){
   try {
     sb.channel('odhj-absensi')
       .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'absensi' }, function(p){
-        if (Date.now() - _localActionAt < 1500) return;   /* ← skip realtime untuk aksi lokal */
+        if (Date.now() - _localActionAt < 1500) return;
         var r = p.new; if (!r || !r.id) return;
         if (DB.absensi.some(function(x){ return x.id === r.id; })) return;
         var entry = { id: r.id, guruId: r.guru_id, nama: r.nama, jk: r.jk, tanggal: r.tanggal, status: r.status, createdAt: r.created_at ? new Date(r.created_at).getTime() : Date.now() };
@@ -433,7 +443,7 @@ function subscribeRealtime(){
         if (DB.absensi.length !== before){ saveDB(); softRefresh(); }
       })
       .on('postgres_changes', { event: '*', schema: 'public', table: 'guru' }, function(){
-        if (Date.now() - _localActionAt < 1500) return;   /* ← skip realtime untuk aksi lokal */
+        if (Date.now() - _localActionAt < 1500) return;
         loadAll(false);
       })
       .subscribe(function(status){ console.log('[Supabase Realtime]', status); });
@@ -456,10 +466,7 @@ function flushQueue(){
 }
 function runOp(op){
   if (!sb) return Promise.reject(new Error('offline'));
-  if (op.type === 'upsertGuru'){
-    if (!op.rows || !op.rows.length) return Promise.resolve();
-    return sb.from('guru').upsert(op.rows, { onConflict: 'id' }).then(checkErr);
-  }
+  if (op.type === 'upsertGuru'){ if (!op.rows || !op.rows.length) return Promise.resolve(); return sb.from('guru').upsert(op.rows, { onConflict: 'id' }).then(checkErr); }
   if (op.type === 'deleteGuru'){ if (!op.ids || !op.ids.length) return Promise.resolve(); return sb.from('guru').delete().in('id', op.ids).then(checkErr); }
   if (op.type === 'insertAbsensi'){ return sb.from('absensi').upsert(op.row, { onConflict: 'guru_id,tanggal', ignoreDuplicates: true }).then(checkErr); }
   if (op.type === 'deleteAbsensi'){ if (!op.ids || !op.ids.length) return Promise.resolve(); return sb.from('absensi').delete().in('id', op.ids).then(checkErr); }
@@ -662,7 +669,7 @@ function renderLogin(){
 }
 
 /* ================================================================
-   ADMIN — dengan EVENT DELEGATION
+   ADMIN
    ================================================================ */
 function renderAdmin(){
   var page = (DB.session && DB.session.page) || 'dashboard';
@@ -720,21 +727,17 @@ function renderAdmin(){
   paintAdminPage(c, page);
 }
 
-/* ---------- EVENT DELEGATION — inti perbaikan ---------- */
 function installContentDelegation(c){
   if (!c || c._delegated) return;
   c._delegated = true;
   c.addEventListener('click', function(e){
     var t = e.target;
     if (!t || !t.closest) return;
-
     var el;
     el = t.closest('[data-edit]');
     if (el){ e.preventDefault(); guruForm(el.getAttribute('data-edit')); return; }
-
     el = t.closest('[data-del]');
     if (el){ e.preventDefault(); deleteGuruById(el.getAttribute('data-del')); return; }
-
     el = t.closest('[data-delentry]');
     if (el){ e.preventDefault(); deleteEntryById(el.getAttribute('data-delentry')); return; }
   });
@@ -749,7 +752,6 @@ function paintAdminPage(c, page){
   else pageDashboard(c);
 }
 
-/* ---------- Delete helpers (delegation target) ---------- */
 function deleteGuruById(id){
   var g = DB.guru.filter(function(x){ return x.id === id; })[0];
   if (!g) return;
@@ -882,8 +884,6 @@ function pageGuru(c){
     + '</tr></thead><tbody>' + rowsHTML + '</tbody></table></div>'
     + '<p class="muted" style="font-size:12px;margin:10px 0 0">💡 Centang data untuk aktifkan tombol hapus.</p>'
     + '</div>';
-
-  /* NOTE: [data-edit] dan [data-del] TIDAK di-bind di sini — ditangani oleh event delegation di #content */
 
   $('#guruSearch').addEventListener('input', function(e){
     guruSearch = e.target.value;
@@ -1237,10 +1237,34 @@ function tableHTML(rows, type, offset){
       }).join('') + '</tbody></table>';
 }
 
+/* ---------- KOP & TANDA TANGAN (di-center + penanggung jawab) ---------- */
 function kopHTML(){
   var k = DB.settings.kop;
-  return '<div class="pr-kop">' + (k.logo ? '<img src="' + esc(k.logo) + '">' : '')
-    + '<div>' + (k.line1 ? '<div class="l1">' + esc(k.line1) + '</div>' : '') + (k.line2 ? '<div class="l2">' + esc(k.line2) + '</div>' : '') + (k.line3 ? '<div class="l3">' + esc(k.line3) + '</div>' : '') + '</div></div>';
+  var logo = k.logo ? '<img src="' + esc(k.logo) + '">' : '';
+  var lines = '';
+  if (k.line1) lines += '<div class="l1">' + esc(k.line1) + '</div>';
+  if (k.line2) lines += '<div class="l2">' + esc(k.line2) + '</div>';
+  if (k.line3) lines += '<div class="l3">' + esc(k.line3) + '</div>';
+  return '<div class="pr-kop"><div class="kop-inner">' + logo + '<div class="kop-text">' + lines + '</div></div></div>';
+}
+
+function signatureHTML(){
+  var pj = (DB.settings.kop.penanggungJawab || '').trim();
+  var pjName = pj ? esc(pj) : '(............................)';
+  return '<div class="ttd">'
+    + '<div>'
+    +   '<div>Mengetahui,</div>'
+    +   '<div>Kepala Sekolah</div>'
+    +   '<div class="sp"></div>'
+    +   '<div class="ttd-name">(............................)</div>'
+    + '</div>'
+    + '<div>'
+    +   '<div>Penanggung Jawab,</div>'
+    +   '<div>&nbsp;</div>'
+    +   '<div class="sp"></div>'
+    +   '<div class="ttd-name">' + pjName + '</div>'
+    + '</div>'
+    + '</div>';
 }
 
 function printReport(res){
@@ -1265,10 +1289,10 @@ function printReport(res){
     body = buildTable(res.rows, res.type === 'peringkat');
   }
   var summaryLine = res.summary ? '<div class="sub" style="font-weight:700">Total: ' + res.summary.total + ' • Sudah: ' + res.summary.filled + ' • Belum: ' + res.summary.empty + '</div>' : '';
-  var html = kopHTML() + '<h4>' + title + '</h4>'
+  var html = kopHTML()
+    + '<h4>' + title + '</h4>'
     + '<div class="sub">Periode: ' + fmtID(res.from) + ' s.d. ' + fmtID(res.to) + ' • Dicetak: ' + fmtID(todayStr()) + '</div>'
-    + summaryLine + body
-    + '<div class="ttd"><div><div>Mengetahui,</div><div class="sp"></div><div style="border-top:1px solid #000;padding-top:3px">Kepala Sekolah</div></div></div>';
+    + summaryLine + body + signatureHTML();
   $('#print-root').innerHTML = '<div class="pr">' + html + '</div>';
   setTimeout(function(){ try { window.print(); } catch (e){} }, 150);
 }
@@ -1291,7 +1315,6 @@ function pageAbsensi(c){
     var f = $('#absFrom').value, t = $('#absTo').value;
     var rows = (DB.absensi || []).filter(function(a){ return a.tanggal >= f && a.tanggal <= t; }).sort(function(a, b){ return b.createdAt - a.createdAt; });
     $('#absList').innerHTML = rows.length ? '<div class="tbl-wrap">' + tableHTML(rows, 'detail', 0) + '</div>' : '<p class="muted">Tidak ada entri.</p>';
-    /* NOTE: [data-delentry] di-handle oleh delegation di #content */
   }
   $('#absFilter').addEventListener('click', paint);
   $('#absDelAll').addEventListener('click', function(){
@@ -1323,10 +1346,11 @@ function pagePengaturan(c){
     + '<label class="fld"><span>Password Baru</span><input type="password" id="setPass" placeholder="Kosongkan bila tidak diubah"></label>'
     + '<label class="fld"><span>Konfirmasi</span><input type="password" id="setPass2"></label>'
     + '<div class="row" style="justify-content:flex-end"><button class="btn primary" id="btnSaveAcc">💾 Simpan</button></div></div>'
-    + '<div class="card"><h3 class="st">🖼️ Kop Surat</h3>'
+    + '<div class="card"><h3 class="st">🖼️ Kop Surat & Tanda Tangan</h3>'
     + '<label class="fld"><span>Baris 1</span><input id="kop1" value="' + esc(s.kop.line1) + '"></label>'
     + '<label class="fld"><span>Baris 2</span><input id="kop2" value="' + esc(s.kop.line2) + '"></label>'
     + '<label class="fld"><span>Baris 3</span><input id="kop3" value="' + esc(s.kop.line3) + '"></label>'
+    + '<label class="fld"><span>Penanggung Jawab Absen</span><input id="kopPJ" value="' + esc(s.kop.penanggungJawab || '') + '" placeholder="Nama penanggung jawab absen"></label>'
     + '<label class="fld"><span>URL Logo</span><input id="kopUrl" value="' + esc(s.kop.logo && s.kop.logo.indexOf('data:') === 0 ? '' : (s.kop.logo || '')) + '"></label>'
     + '<div class="row"><button class="btn" id="btnUploadLogo">📤 Upload Logo</button><button class="btn ghost" id="btnRemoveLogo">🗑️ Hapus Logo</button></div>'
     + '<input type="file" id="logoFile" accept="image/*" class="hidden">'
@@ -1387,9 +1411,13 @@ function pagePengaturan(c){
   $('#kopUrl').addEventListener('change', function(e){ var u = e.target.value.trim(); if (u){ markLocal(); s.kop.logo = u; saveDB(); toast('Logo disimpan', 'success'); pagePengaturan(c); push({ type: 'saveSettings', row: settingsRow() }); } });
   $('#btnSaveKop').addEventListener('click', function(){
     markLocal();
-    s.kop.line1 = $('#kop1').value.trim(); s.kop.line2 = $('#kop2').value.trim(); s.kop.line3 = $('#kop3').value.trim();
-    saveDB(); push({ type: 'saveSettings', row: settingsRow() });
-    toast('Kop disimpan', 'success');
+    s.kop.line1 = $('#kop1').value.trim();
+    s.kop.line2 = $('#kop2').value.trim();
+    s.kop.line3 = $('#kop3').value.trim();
+    s.kop.penanggungJawab = $('#kopPJ').value.trim();
+    saveDB();
+    push({ type: 'saveSettings', row: settingsRow() });
+    toast('Kop & penanggung jawab disimpan', 'success');
   });
 }
 
