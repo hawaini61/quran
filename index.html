@@ -114,10 +114,6 @@ html[data-theme="light"] .topbar{background:rgba(255,255,255,.75)}
 .handle{cursor:grab;color:var(--muted);font-size:16px;user-select:none}
 .drop-zone{border:2px dashed var(--border);border-radius:16px;padding:26px;text-align:center;color:var(--muted);transition:.2s;cursor:pointer;background:var(--panel2)}
 .drop-zone.hover{border-color:var(--primary);background:rgba(109,94,252,.08);color:var(--text)}
-.pager{display:flex;gap:6px;flex-wrap:wrap;align-items:center;justify-content:center;margin-top:14px}
-.pager button{min-width:36px;height:36px;border-radius:10px;border:1px solid var(--border);background:var(--panel);color:var(--text);cursor:pointer;font-weight:700;font-size:13px}
-.pager button.active{background:linear-gradient(135deg,var(--primary),var(--primary2));color:#fff;border-color:transparent}
-.pager button[disabled]{opacity:.4;cursor:not-allowed}
 .modal-bg{position:fixed;inset:0;background:rgba(4,8,20,.6);backdrop-filter:blur(6px);z-index:60;display:grid;place-items:center;padding:18px}
 .modal{width:100%;max-width:460px;background:var(--bg-soft);border:1px solid var(--border);border-radius:20px;padding:22px;box-shadow:var(--shadow)}
 #toasts{position:fixed;top:16px;right:16px;z-index:99;display:flex;flex-direction:column;gap:10px}
@@ -165,19 +161,8 @@ html[data-theme="light"] .topbar{background:rgba(255,255,255,.75)}
 .pr .ttd{margin-top:34px;display:flex;justify-content:flex-end}
 .pr .ttd div{text-align:center;width:220px}
 .pr .ttd .sp{height:64px}
-@media print{
-  body{background:#fff}
-  body::before{display:none!important}
-  body>*{display:none!important}
-  #print-root{display:block!important}
-  @page{size:A4;margin:12mm}
-}
-@media (max-width:900px){
-  .sidebar{position:fixed;left:0;top:0;z-index:50;transform:translateX(-102%);transition:transform .25s ease}
-  .sidebar.open{transform:none}
-  .only-mobile{display:grid}
-  .content{padding:14px}
-}
+@media print{body{background:#fff}body::before{display:none!important}body>*{display:none!important}#print-root{display:block!important}@page{size:A4;margin:12mm}}
+@media (max-width:900px){.sidebar{position:fixed;left:0;top:0;z-index:50;transform:translateX(-102%);transition:transform .25s ease}.sidebar.open{transform:none}.only-mobile{display:grid}.content{padding:14px}}
 </style>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 </head>
@@ -221,7 +206,6 @@ window.onerror = function(msg, url, line, col, err){
 var SUPABASE_URL      = 'https://dibwborauvttxhigwjqc.supabase.co';
 var SUPABASE_ANON_KEY = 'sb_publishable_gCNtR9sGEXHZ7cqJ9Up0sQ_m3rvPYVl';
 
-/* ---------- KONSTANTA ---------- */
 var LS_KEY   = 'absensi_odhj_db_v2';
 var LS_SESS  = 'absensi_odhj_sess_v2';
 var LS_USER  = 'absensi_last_user';
@@ -240,6 +224,9 @@ var STATUS_META = {
 var sb = null;
 var ONLINE = false;
 var DB = null;
+var _localActionAt = 0;   /* ← timestamp aksi user lokal */
+
+function markLocal(){ _localActionAt = Date.now(); }
 
 /* ---------- HELPERS ---------- */
 function $(s, r){ return (r || document).querySelector(s); }
@@ -249,9 +236,7 @@ function esc(s){
     return ({ '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;' })[c];
   });
 }
-function isUUID(s){
-  return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(String(s || ''));
-}
+function isUUID(s){ return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(String(s || '')); }
 function uid(){
   try { if (window.crypto && window.crypto.randomUUID) return window.crypto.randomUUID(); } catch (e){}
   return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c){
@@ -275,19 +260,13 @@ function defaultDB(){
       years: [{ year: y, active: true }], activeYear: y,
       kop: { line1: 'YAYASAN PENDIDIKAN ISLAM', line2: 'SEKOLAH ISLAM TERPADU', line3: 'Jl. Pendidikan No. 1, Indonesia', logo: '' }
     },
-    guru: [],
-    absensi: []
+    guru: [], absensi: []
   };
 }
 function normalizeIds(d){
   var map = {};
-  (d.guru || []).forEach(function(g){
-    if (!isUUID(g.id)){ var nid = uid(); map[g.id] = nid; g.id = nid; }
-  });
-  (d.absensi || []).forEach(function(a){
-    if (!isUUID(a.id)) a.id = uid();
-    if (map[a.guruId]) a.guruId = map[a.guruId];
-  });
+  (d.guru || []).forEach(function(g){ if (!isUUID(g.id)){ var nid = uid(); map[g.id] = nid; g.id = nid; } });
+  (d.absensi || []).forEach(function(a){ if (!isUUID(a.id)) a.id = uid(); if (map[a.guruId]) a.guruId = map[a.guruId]; });
   return d;
 }
 function migrate(d){
@@ -296,57 +275,33 @@ function migrate(d){
   var s = d.settings;
   s.adminUser = s.adminUser || 'admin';
   s.adminPass = s.adminPass || 'hawen';
-  s.theme     = s.theme || 'dark';
+  s.theme = s.theme || 'dark';
   if (!Array.isArray(s.years) || !s.years.length) s.years = [{ year: new Date().getFullYear(), active: true }];
   s.activeYear = s.activeYear || s.years[0].year;
   s.kop = Object.assign({ line1: '', line2: '', line3: '', logo: '' }, s.kop || {});
-  d.guru    = Array.isArray(d.guru) ? d.guru : [];
+  d.guru = Array.isArray(d.guru) ? d.guru : [];
   d.absensi = Array.isArray(d.absensi) ? d.absensi : [];
   return normalizeIds(d);
 }
 function loadCache(){
-  try {
-    var raw = localStorage.getItem(LS_KEY);
-    if (raw) return migrate(JSON.parse(raw));
-  } catch (e){}
+  try { var raw = localStorage.getItem(LS_KEY); if (raw) return migrate(JSON.parse(raw)); } catch (e){}
   return defaultDB();
 }
 function saveDB(){
-  try {
-    localStorage.setItem(LS_KEY, JSON.stringify({
-      settings: DB.settings, guru: DB.guru, absensi: DB.absensi
-    }));
-  } catch (e){}
+  try { localStorage.setItem(LS_KEY, JSON.stringify({ settings: DB.settings, guru: DB.guru, absensi: DB.absensi })); } catch (e){}
   persistSession();
 }
 
-/* ================================================================
-   SESI PERSISTEN + HISTORY BROWSER
-   ================================================================ */
+/* ---------- SESI + HISTORY ---------- */
 function loadSession(){
-  try {
-    var raw = localStorage.getItem(LS_SESS);
-    if (raw){
-      var s = JSON.parse(raw);
-      if (s && s.role){
-        return { role: s.role, page: s.page || null };
-      }
-    }
-  } catch (e){}
+  try { var raw = localStorage.getItem(LS_SESS); if (raw){ var s = JSON.parse(raw); if (s && s.role) return { role: s.role, page: s.page || null }; } } catch (e){}
   return { role: 'user', page: null };
 }
 function persistSession(){
-  try {
-    localStorage.setItem(LS_SESS, JSON.stringify({
-      role: DB.session && DB.session.role,
-      page: DB.session && DB.session.page
-    }));
-  } catch (e){}
+  try { localStorage.setItem(LS_SESS, JSON.stringify({ role: DB.session && DB.session.role, page: DB.session && DB.session.page })); } catch (e){}
 }
 function navigate(role, page){
-  if (DB.session && DB.session.role === role && DB.session.page === (page || null)){
-    return;
-  }
+  if (DB.session && DB.session.role === role && DB.session.page === (page || null)) return;
   DB.session = { role: role, page: page || null };
   persistSession();
   var cur = history.state;
@@ -356,24 +311,15 @@ function navigate(role, page){
 }
 function goBack(){
   var cur = history.state;
-  if (cur && cur.app === 'odhj' && cur.depth > 0){
-    history.back();
-  } else if (!cur || cur.app !== 'odhj'){
-    DB.session = { role: 'user', page: null };
-    persistSession();
-    render();
-  }
+  if (cur && cur.app === 'odhj' && cur.depth > 0){ history.back(); }
+  else if (!cur || cur.app !== 'odhj'){ DB.session = { role: 'user', page: null }; persistSession(); render(); }
 }
 function resetToUser(){
   DB.session = { role: 'user', page: null };
   persistSession();
   var cur = history.state;
   var depth = (cur && cur.app === 'odhj' && cur.depth > 0) ? cur.depth : 0;
-  if (depth > 0){
-    history.go(-depth);
-  } else {
-    render();
-  }
+  if (depth > 0) history.go(-depth); else render();
 }
 
 /* ---------- UI HELPERS ---------- */
@@ -381,8 +327,7 @@ function applyTheme(){
   try { document.documentElement.setAttribute('data-theme', (DB.settings && DB.settings.theme) || 'dark'); } catch (e){}
 }
 function setSync(mode){
-  var el = document.getElementById('syncBadge');
-  if (!el) return;
+  var el = document.getElementById('syncBadge'); if (!el) return;
   if (mode === 'syncing')      el.innerHTML = '<span class="dot spin-dot"></span> Menyinkronkan…';
   else if (mode === 'pending') el.innerHTML = '<span class="dot spin-dot"></span> Menunggu sinkron';
   else if (mode === 'error')   el.innerHTML = '<span class="dot err"></span> Gagal sinkron';
@@ -397,37 +342,30 @@ function toast(msg, type){
     var el = document.createElement('div');
     el.className = 'toast ' + type;
     el.innerHTML = '<span>' + (icons[type] || '✅') + '</span><span>' + esc(msg) + '</span>';
-    var box = document.getElementById('toasts');
-    if (!box) return;
+    var box = document.getElementById('toasts'); if (!box) return;
     box.appendChild(el);
-    setTimeout(function(){
-      el.style.transition = '.3s'; el.style.opacity = '0'; el.style.transform = 'translateX(30px)';
-      setTimeout(function(){ try { el.remove(); } catch (e){} }, 320);
-    }, 3000);
+    setTimeout(function(){ el.style.transition = '.3s'; el.style.opacity = '0'; el.style.transform = 'translateX(30px)'; setTimeout(function(){ try { el.remove(); } catch (e){} }, 320); }, 3000);
   } catch (e){}
 }
 function busy(on, text){
   text = text || 'Memproses…';
-  try {
-    var t = document.getElementById('overlayText');
-    if (t) t.textContent = text;
-    var o = document.getElementById('overlay');
-    if (o) o.classList.toggle('hidden', !on);
-  } catch (e){}
+  try { var t = document.getElementById('overlayText'); if (t) t.textContent = text; var o = document.getElementById('overlay'); if (o) o.classList.toggle('hidden', !on); } catch (e){}
 }
 function openModal(html, onMount){
+  /* pastikan hanya satu modal */
+  $$('.modal-bg').forEach(function(m){ m.remove(); });
   var bg = document.createElement('div');
   bg.className = 'modal-bg';
   bg.innerHTML = '<div class="modal">' + html + '</div>';
   bg.addEventListener('click', function(e){ if (e.target === bg) bg.remove(); });
   document.body.appendChild(bg);
-  if (onMount){ try { onMount(bg); } catch (e){ console.error(e); } }
+  if (onMount){ try { onMount(bg); } catch (e){ console.error('onMount error:', e); } }
   return bg;
 }
 function closeModal(){ $$('.modal-bg').forEach(function(m){ m.remove(); }); }
 
 /* ================================================================
-   SUPABASE LAYER
+   SUPABASE
    ================================================================ */
 function supabaseConfigured(){
   return (typeof window.supabase !== 'undefined')
@@ -437,28 +375,13 @@ function supabaseConfigured(){
       && SUPABASE_ANON_KEY.length > 20;
 }
 function initSupabase(){
-  if (!supabaseConfigured()){
-    console.warn('[Supabase] Belum dikonfigurasi — memakai mode lokal (localStorage).');
-    setSync('offline');
-    return;
-  }
-  try {
-    sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
-  } catch (e){
-    console.error('[Supabase] createClient gagal:', e);
-    setSync('error');
-    return;
-  }
-  ONLINE = true;
-  setSync('syncing');
-  flushQueue().then(function(){ return loadAll(true); }).then(function(){
-    subscribeRealtime();
-  }).catch(function(e){
-    console.error('[Supabase] init gagal:', e);
-    setSync('error');
-  });
+  if (!supabaseConfigured()){ console.warn('[Supabase] belum dikonfigurasi'); setSync('offline'); return; }
+  try { sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY); }
+  catch (e){ console.error('[Supabase]', e); setSync('error'); return; }
+  ONLINE = true; setSync('syncing');
+  flushQueue().then(function(){ return loadAll(true); }).then(function(){ subscribeRealtime(); })
+    .catch(function(e){ console.error('[Supabase] init gagal:', e); setSync('error'); });
 }
-
 function loadAll(initial){
   if (!sb) return Promise.resolve();
   setSync('syncing');
@@ -469,7 +392,6 @@ function loadAll(initial){
   ]).then(function(res){
     var e0 = res[0].error, e1 = res[1].error, e2 = res[2].error;
     if (e0 || e1 || e2) throw (e0 || e1 || e2);
-
     var st = res[0].data;
     if (st){
       DB.settings.adminUser  = st.admin_user  || DB.settings.adminUser;
@@ -479,93 +401,58 @@ function loadAll(initial){
       if (Array.isArray(st.years) && st.years.length) DB.settings.years = st.years;
       if (st.kop && typeof st.kop === 'object') DB.settings.kop = Object.assign(DB.settings.kop, st.kop);
     }
-    DB.guru = (res[1].data || []).map(function(r){
-      return { id: r.id, nama: r.nama, jk: r.jk };
-    });
+    DB.guru = (res[1].data || []).map(function(r){ return { id: r.id, nama: r.nama, jk: r.jk }; });
     DB.absensi = (res[2].data || []).map(function(r){
-      return {
-        id: r.id, guruId: r.guru_id, nama: r.nama, jk: r.jk,
-        tanggal: r.tanggal, status: r.status,
-        createdAt: r.created_at ? new Date(r.created_at).getTime() : Date.now()
-      };
+      return { id: r.id, guruId: r.guru_id, nama: r.nama, jk: r.jk, tanggal: r.tanggal, status: r.status, createdAt: r.created_at ? new Date(r.created_at).getTime() : Date.now() };
     });
-    applyTheme();
-    saveDB();
-    setSync('synced');
+    applyTheme(); saveDB(); setSync('synced');
     if (initial) render(); else softRefresh();
   }).catch(function(err){
-    console.error('[Supabase] loadAll gagal:', err);
-    setSync('error');
-    if (initial) render();
+    console.error('[Supabase] loadAll gagal:', err); setSync('error'); if (initial) render();
   });
 }
-
 function subscribeRealtime(){
   if (!sb) return;
   try {
     sb.channel('odhj-absensi')
       .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'absensi' }, function(p){
-        var r = p.new;
-        if (!r || !r.id) return;
+        if (Date.now() - _localActionAt < 1500) return;   /* ← skip realtime untuk aksi lokal */
+        var r = p.new; if (!r || !r.id) return;
         if (DB.absensi.some(function(x){ return x.id === r.id; })) return;
-        var entry = {
-          id: r.id, guruId: r.guru_id, nama: r.nama, jk: r.jk,
-          tanggal: r.tanggal, status: r.status,
-          createdAt: r.created_at ? new Date(r.created_at).getTime() : Date.now()
-        };
-        DB.absensi.push(entry);
-        saveDB();
+        var entry = { id: r.id, guruId: r.guru_id, nama: r.nama, jk: r.jk, tanggal: r.tanggal, status: r.status, createdAt: r.created_at ? new Date(r.created_at).getTime() : Date.now() };
+        DB.absensi.push(entry); saveDB();
         toast('📩 ' + entry.nama + ' • ' + (STATUS_LABEL[entry.status] || entry.status) + ' • ' + fmtShort(entry.tanggal), 'newmsg');
-        setSync('new');
-        setTimeout(function(){ setSync('synced'); }, 1600);
+        setSync('new'); setTimeout(function(){ setSync('synced'); }, 1600);
         softRefresh();
       })
       .on('postgres_changes', { event: 'DELETE', schema: 'public', table: 'absensi' }, function(p){
-        var id = p.old && p.old.id;
-        if (!id) return;
+        if (Date.now() - _localActionAt < 1500) return;
+        var id = p.old && p.old.id; if (!id) return;
         var before = DB.absensi.length;
         DB.absensi = DB.absensi.filter(function(x){ return x.id !== id; });
         if (DB.absensi.length !== before){ saveDB(); softRefresh(); }
       })
       .on('postgres_changes', { event: '*', schema: 'public', table: 'guru' }, function(){
+        if (Date.now() - _localActionAt < 1500) return;   /* ← skip realtime untuk aksi lokal */
         loadAll(false);
       })
-      .subscribe(function(status){
-        console.log('[Supabase Realtime]', status);
-      });
+      .subscribe(function(status){ console.log('[Supabase Realtime]', status); });
   } catch (e){ console.warn('Realtime gagal:', e); }
 }
 
-/* ---------- ANTREAN TULIS (offline-first) ---------- */
-function readQueue(){
-  try { return JSON.parse(localStorage.getItem(LS_QUEUE) || '[]'); } catch (e){ return []; }
-}
-function writeQueue(q){
-  try { localStorage.setItem(LS_QUEUE, JSON.stringify(q)); } catch (e){}
-}
-function queueOp(op){
-  var q = readQueue(); q.push(op); writeQueue(q);
-  setSync('pending');
-}
+/* ---------- ANTREAN TULIS ---------- */
+function readQueue(){ try { return JSON.parse(localStorage.getItem(LS_QUEUE) || '[]'); } catch (e){ return []; } }
+function writeQueue(q){ try { localStorage.setItem(LS_QUEUE, JSON.stringify(q)); } catch (e){} }
+function queueOp(op){ var q = readQueue(); q.push(op); writeQueue(q); setSync('pending'); }
 function pendingCount(){ return readQueue().length; }
 function flushQueue(){
   if (!sb) return Promise.resolve();
-  var q = readQueue();
-  if (!q.length) return Promise.resolve();
-  var rest = [];
-  var chain = Promise.resolve();
+  var q = readQueue(); if (!q.length) return Promise.resolve();
+  var rest = [], chain = Promise.resolve();
   q.forEach(function(op){
-    chain = chain.then(function(){
-      return runOp(op).catch(function(err){
-        console.warn('Antrean gagal, disimpan ulang:', err);
-        rest.push(op);
-      });
-    });
+    chain = chain.then(function(){ return runOp(op).catch(function(err){ console.warn('Antrean gagal:', err); rest.push(op); }); });
   });
-  return chain.then(function(){
-    writeQueue(rest);
-    setSync(rest.length ? 'pending' : 'synced');
-  });
+  return chain.then(function(){ writeQueue(rest); setSync(rest.length ? 'pending' : 'synced'); });
 }
 function runOp(op){
   if (!sb) return Promise.reject(new Error('offline'));
@@ -573,74 +460,31 @@ function runOp(op){
     if (!op.rows || !op.rows.length) return Promise.resolve();
     return sb.from('guru').upsert(op.rows, { onConflict: 'id' }).then(checkErr);
   }
-  if (op.type === 'deleteGuru'){
-    if (!op.ids || !op.ids.length) return Promise.resolve();
-    return sb.from('guru').delete().in('id', op.ids).then(checkErr);
-  }
-  if (op.type === 'insertAbsensi'){
-    return sb.from('absensi')
-      .upsert(op.row, { onConflict: 'guru_id,tanggal', ignoreDuplicates: true })
-      .then(checkErr);
-  }
-  if (op.type === 'deleteAbsensi'){
-    if (!op.ids || !op.ids.length) return Promise.resolve();
-    return sb.from('absensi').delete().in('id', op.ids).then(checkErr);
-  }
-  if (op.type === 'deleteAbsensiRange'){
-    return sb.from('absensi').delete().gte('tanggal', op.from).lte('tanggal', op.to).then(checkErr);
-  }
-  if (op.type === 'saveSettings'){
-    return sb.from('settings').upsert(op.row, { onConflict: 'id' }).then(checkErr);
-  }
+  if (op.type === 'deleteGuru'){ if (!op.ids || !op.ids.length) return Promise.resolve(); return sb.from('guru').delete().in('id', op.ids).then(checkErr); }
+  if (op.type === 'insertAbsensi'){ return sb.from('absensi').upsert(op.row, { onConflict: 'guru_id,tanggal', ignoreDuplicates: true }).then(checkErr); }
+  if (op.type === 'deleteAbsensi'){ if (!op.ids || !op.ids.length) return Promise.resolve(); return sb.from('absensi').delete().in('id', op.ids).then(checkErr); }
+  if (op.type === 'deleteAbsensiRange'){ return sb.from('absensi').delete().gte('tanggal', op.from).lte('tanggal', op.to).then(checkErr); }
+  if (op.type === 'saveSettings'){ return sb.from('settings').upsert(op.row, { onConflict: 'id' }).then(checkErr); }
   return Promise.resolve();
 }
-function checkErr(res){
-  if (res && res.error) throw res.error;
-  return res;
-}
+function checkErr(res){ if (res && res.error) throw res.error; return res; }
 function push(op){
   if (!sb){ queueOp(op); return; }
   setSync('syncing');
-  runOp(op).then(function(){
-    if (!pendingCount()) setSync('synced');
-    else flushQueue();
-  }).catch(function(err){
-    console.warn('Push gagal:', err);
-    queueOp(op);
-  });
+  runOp(op).then(function(){ if (!pendingCount()) setSync('synced'); else flushQueue(); })
+           .catch(function(err){ console.warn('Push gagal:', err); queueOp(op); });
 }
 
 /* ---------- ROW MAPPERS ---------- */
 function settingsRow(){
   var s = DB.settings;
-  return {
-    id: 1,
-    admin_user: s.adminUser,
-    admin_pass: s.adminPass,
-    theme: s.theme,
-    active_year: s.activeYear,
-    years: s.years,
-    kop: s.kop
-  };
+  return { id: 1, admin_user: s.adminUser, admin_pass: s.adminPass, theme: s.theme, active_year: s.activeYear, years: s.years, kop: s.kop };
 }
-function guruRows(){
-  return DB.guru.map(function(g, i){
-    return { id: g.id, nama: g.nama, jk: g.jk, urut: i };
-  });
-}
+function guruRows(){ return DB.guru.map(function(g, i){ return { id: g.id, nama: g.nama, jk: g.jk, urut: i }; }); }
 function absensiRow(entry){
-  return {
-    id: entry.id,
-    guru_id: entry.guruId,
-    nama: entry.nama,
-    jk: entry.jk,
-    tanggal: entry.tanggal,
-    status: entry.status,
-    created_at: new Date(entry.createdAt).toISOString()
-  };
+  return { id: entry.id, guru_id: entry.guruId, nama: entry.nama, jk: entry.jk, tanggal: entry.tanggal, status: entry.status, created_at: new Date(entry.createdAt).toISOString() };
 }
 
-/* ---------- SOFT REFRESH ---------- */
 function softRefresh(){
   if ($$('.modal-bg').length) return;
   var role = DB.session && DB.session.role;
@@ -666,9 +510,7 @@ function render(){
   } catch (e){
     console.error('render error:', e);
     var app = document.getElementById('app');
-    if (app) app.innerHTML = '<div style="padding:40px;color:#e9eefb;font-family:sans-serif">'
-      + '<h2 style="color:#ef4444">Gagal merender</h2>'
-      + '<pre style="background:#1a1a2e;padding:14px;border-radius:10px;overflow:auto;font-size:12px">' + esc(String(e && e.message || e)) + '</pre></div>';
+    if (app) app.innerHTML = '<div style="padding:40px;color:#e9eefb;font-family:sans-serif"><h2 style="color:#ef4444">Gagal merender</h2><pre style="background:#1a1a2e;padding:14px;border-radius:10px;font-size:12px">' + esc(String(e && e.message || e)) + '</pre></div>';
   }
 }
 
@@ -679,26 +521,19 @@ function renderUserForm(){
   var gurus = DB.guru || [];
   var themeIcon = DB.settings.theme === 'dark' ? '🌙' : '☀️';
   var html = [];
-
   html.push('<div class="user-wrap">');
   html.push('<div class="user-top">');
-  html.push('<div class="side-brand" style="padding:0">');
-  html.push('<div class="logo" style="width:40px;height:40px;font-size:20px;border-radius:12px">📖</div>');
-  html.push('<div><strong style="font-size:14px">One Day Half Juz</strong><span>Form Absensi Tilawah</span></div>');
-  html.push('</div>');
+  html.push('<div class="side-brand" style="padding:0"><div class="logo" style="width:40px;height:40px;font-size:20px;border-radius:12px">📖</div><div><strong style="font-size:14px">One Day Half Juz</strong><span>Form Absensi Tilawah</span></div></div>');
   html.push('<div class="spacer"></div>');
   html.push('<div class="sync" id="syncBadge"><span class="dot ok"></span> Tersinkron</div>');
   html.push('<button class="icon-btn" id="btnThemeUser" title="Ganti tema">' + themeIcon + '</button>');
   html.push('<button class="icon-btn" id="btnToAdmin" title="Login Admin">🔐</button>');
   html.push('</div>');
-
   html.push('<div class="user-card">');
   html.push('<h2 class="pt" style="font-size:19px">✍️ Form Absensi Tilawah</h2>');
   html.push('<p class="muted" style="font-size:13px;margin:4px 0 20px">Isi data berikut. Satu guru hanya dapat mengisi satu kali per tanggal.</p>');
-
   if (gurus.length){
-    html.push('<label class="fld"><span>Nama Guru / Staf</span><select id="uNama">');
-    html.push('<option value="">— Pilih Nama —</option>');
+    html.push('<label class="fld"><span>Nama Guru / Staf</span><select id="uNama"><option value="">— Pilih Nama —</option>');
     gurus.forEach(function(g){ html.push('<option value="' + esc(g.id) + '">' + esc(g.nama) + '</option>'); });
     html.push('</select></label>');
     html.push('<label class="fld"><span>Jenis Kelamin</span><input id="uJK" value="" readonly placeholder="Terisi otomatis" style="opacity:.85"></label>');
@@ -706,114 +541,65 @@ function renderUserForm(){
     html.push('<label class="fld" style="margin-bottom:8px"><span>Status Tilawah</span></label>');
     html.push('<div class="radio-grid" id="uStatusWrap"></div>');
     html.push('<div id="uWarn" class="hidden" style="margin-top:14px;padding:12px 14px;border-radius:12px;background:rgba(239,68,68,.12);border:1px solid rgba(239,68,68,.35);font-size:13px;font-weight:600;color:#ef4444"></div>');
-    html.push('<button class="btn primary block" id="uSubmit" style="margin-top:18px">');
-    html.push('<span id="uSpin" class="spin-sm hidden"></span><span id="uTxt">💾 Kirim Absensi</span></button>');
+    html.push('<button class="btn primary block" id="uSubmit" style="margin-top:18px"><span id="uSpin" class="spin-sm hidden"></span><span id="uTxt">💾 Kirim Absensi</span></button>');
     html.push('<div id="uRecent" style="margin-top:22px"></div>');
   } else {
-    html.push('<div style="text-align:center;padding:26px">');
-    html.push('<div style="font-size:40px">📭</div>');
-    html.push('<p class="muted" style="margin-top:10px">Belum ada data guru/staf. Silakan hubungi admin.</p>');
-    html.push('</div>');
+    html.push('<div style="text-align:center;padding:26px"><div style="font-size:40px">📭</div><p class="muted" style="margin-top:10px">Belum ada data guru/staf. Silakan hubungi admin.</p></div>');
   }
   html.push('</div>');
   html.push('<p class="muted" style="font-size:12px;margin-top:16px">© ' + new Date().getFullYear() + ' Absensi One Day Half Juz</p>');
   html.push('</div>');
-
   $('#app').innerHTML = html.join('');
   var app = $('#app'); if (app) app.setAttribute('data-ok', '1');
-
   setSync(ONLINE ? (pendingCount() ? 'pending' : 'synced') : 'offline');
 
-  var btnTheme = $('#btnThemeUser');
-  if (btnTheme) btnTheme.addEventListener('click', toggleTheme);
-  var btnAdmin = $('#btnToAdmin');
-  if (btnAdmin) btnAdmin.addEventListener('click', function(){ navigate('guest'); });
-
+  var btnTheme = $('#btnThemeUser'); if (btnTheme) btnTheme.addEventListener('click', toggleTheme);
+  var btnAdmin = $('#btnToAdmin'); if (btnAdmin) btnAdmin.addEventListener('click', function(){ navigate('guest'); });
   if (!gurus.length){ window._refreshUserRecent = null; return; }
 
   var selNama = $('#uNama'), inpJK = $('#uJK'), inpTgl = $('#uTanggal');
   var wrapStatus = $('#uStatusWrap'), warn = $('#uWarn'), btn = $('#uSubmit');
   var status = null;
 
-  function findGuru(id){
-    for (var k = 0; k < DB.guru.length; k++) if (DB.guru[k].id === id) return DB.guru[k];
-    return null;
-  }
+  function findGuru(id){ for (var k = 0; k < DB.guru.length; k++) if (DB.guru[k].id === id) return DB.guru[k]; return null; }
   function renderStatus(){
     var g = findGuru(selNama.value);
-    var opts = ['tilawah', 'tidak'];
-    if (g && g.jk === 'P') opts.push('haid');
+    var opts = ['tilawah', 'tidak']; if (g && g.jk === 'P') opts.push('haid');
     if (status && opts.indexOf(status) === -1) status = null;
     var arr = [];
     opts.forEach(function(v){
       var m = STATUS_META[v];
-      var sel = status === v ? 'sel' : '';
-      arr.push('<div class="status-btn ' + sel + '" data-v="' + v + '" role="button" tabindex="0">');
-      arr.push('<div class="sb-check">✓</div>');
-      arr.push('<div class="sb-icon">' + m.icon + '</div>');
-      arr.push('<div class="sb-label">' + m.label + '</div>');
-      arr.push('<div class="sb-sub">' + m.sub + '</div>');
-      arr.push('</div>');
+      arr.push('<div class="status-btn ' + (status === v ? 'sel' : '') + '" data-v="' + v + '" role="button" tabindex="0"><div class="sb-check">✓</div><div class="sb-icon">' + m.icon + '</div><div class="sb-label">' + m.label + '</div><div class="sb-sub">' + m.sub + '</div></div>');
     });
     wrapStatus.innerHTML = arr.join('');
     $$('.status-btn', wrapStatus).forEach(function(el){
-      function activate(){
-        status = el.getAttribute('data-v');
-        renderStatus();
-        checkDup();
-      }
+      function activate(){ status = el.getAttribute('data-v'); renderStatus(); checkDup(); }
       el.addEventListener('click', activate);
-      el.addEventListener('keydown', function(e){
-        if (e.key === 'Enter' || e.key === ' '){ e.preventDefault(); activate(); }
-      });
+      el.addEventListener('keydown', function(e){ if (e.key === 'Enter' || e.key === ' '){ e.preventDefault(); activate(); } });
     });
   }
   function checkDup(){
-    warn.classList.add('hidden');
-    btn.disabled = false;
-    var gid = selNama.value, tgl = inpTgl.value;
-    if (!gid || !tgl) return;
+    warn.classList.add('hidden'); btn.disabled = false;
+    var gid = selNama.value, tgl = inpTgl.value; if (!gid || !tgl) return;
     var dup = null;
-    for (var k = 0; k < DB.absensi.length; k++){
-      var a = DB.absensi[k];
-      if (a.guruId === gid && a.tanggal === tgl){ dup = a; break; }
-    }
-    if (dup){
-      warn.textContent = '⚠️ Anda sudah mengisi absensi untuk tanggal ' + fmtShort(tgl) + ' (' + (STATUS_LABEL[dup.status] || dup.status) + ').';
-      warn.classList.remove('hidden');
-      btn.disabled = true;
-    }
+    for (var k = 0; k < DB.absensi.length; k++){ var a = DB.absensi[k]; if (a.guruId === gid && a.tanggal === tgl){ dup = a; break; } }
+    if (dup){ warn.textContent = '⚠️ Sudah mengisi untuk tanggal ' + fmtShort(tgl) + ' (' + (STATUS_LABEL[dup.status] || dup.status) + ').'; warn.classList.remove('hidden'); btn.disabled = true; }
   }
-  function updateJK(){
-    var g = findGuru(selNama.value);
-    inpJK.value = g ? (g.jk === 'P' ? 'Perempuan (Akhwat)' : 'Laki-laki (Ikhwan)') : '';
-    renderStatus();
-    checkDup();
-  }
+  function updateJK(){ var g = findGuru(selNama.value); inpJK.value = g ? (g.jk === 'P' ? 'Perempuan (Akhwat)' : 'Laki-laki (Ikhwan)') : ''; renderStatus(); checkDup(); }
   function recent(){
     var tgl = inpTgl.value;
-    var list = (DB.absensi || []).filter(function(a){ return a.tanggal === tgl; })
-                                 .sort(function(a, b){ return b.createdAt - a.createdAt; })
-                                 .slice(0, 8);
-    var el = $('#uRecent');
-    if (!el) return;
+    var list = (DB.absensi || []).filter(function(a){ return a.tanggal === tgl; }).sort(function(a, b){ return b.createdAt - a.createdAt; }).slice(0, 8);
+    var el = $('#uRecent'); if (!el) return;
     if (!list.length){ el.innerHTML = ''; return; }
-    var arr = [];
-    arr.push('<h3 class="st" style="font-size:13.5px">🗒️ Sudah mengisi (' + fmtShort(tgl) + ') — ' + list.length + '</h3>');
-    list.forEach(function(a){
-      arr.push('<div class="rank-item" style="padding:8px 10px">');
-      arr.push('<div style="flex:1;min-width:0;font-weight:600;font-size:13.5px">' + esc(a.nama) + '</div>');
-      arr.push('<span class="badge ' + (STATUS_CLASS[a.status] || '') + '">' + (STATUS_LABEL[a.status] || a.status) + '</span>');
-      arr.push('</div>');
-    });
+    var arr = ['<h3 class="st" style="font-size:13.5px">🗒️ Sudah mengisi (' + fmtShort(tgl) + ') — ' + list.length + '</h3>'];
+    list.forEach(function(a){ arr.push('<div class="rank-item" style="padding:8px 10px"><div style="flex:1;min-width:0;font-weight:600;font-size:13.5px">' + esc(a.nama) + '</div><span class="badge ' + (STATUS_CLASS[a.status] || '') + '">' + (STATUS_LABEL[a.status] || a.status) + '</span></div>'); });
     el.innerHTML = arr.join('');
   }
   window._refreshUserRecent = function(){ try { recent(); } catch (e){} };
 
   selNama.addEventListener('change', updateJK);
   inpTgl.addEventListener('change', function(){ checkDup(); recent(); });
-  updateJK();
-  recent();
+  updateJK(); recent();
 
   btn.addEventListener('click', function(){
     var gid = selNama.value, tgl = inpTgl.value;
@@ -821,22 +607,14 @@ function renderUserForm(){
     if (!tgl){ toast('Pilih tanggal tilawah', 'error'); return; }
     if (!status){ toast('Pilih status tilawah', 'error'); return; }
     if (tgl > todayStr()){ toast('Tanggal tidak boleh melebihi hari ini', 'error'); return; }
-    if (DB.absensi.some(function(a){ return a.guruId === gid && a.tanggal === tgl; })){
-      toast('Sudah ada absensi pada tanggal ini', 'error'); return;
-    }
-    var g = findGuru(gid);
-    if (!g) return;
-
-    var entry = {
-      id: uid(), guruId: gid, nama: g.nama, jk: g.jk,
-      tanggal: tgl, status: status, createdAt: Date.now()
-    };
-    DB.absensi.push(entry);
-    saveDB();
+    if (DB.absensi.some(function(a){ return a.guruId === gid && a.tanggal === tgl; })){ toast('Sudah ada absensi pada tanggal ini', 'error'); return; }
+    var g = findGuru(gid); if (!g) return;
+    markLocal();
+    var entry = { id: uid(), guruId: gid, nama: g.nama, jk: g.jk, tanggal: tgl, status: status, createdAt: Date.now() };
+    DB.absensi.push(entry); saveDB();
     push({ type: 'insertAbsensi', row: absensiRow(entry) });
     toast('Berhasil! ' + g.nama + ' — ' + (STATUS_LABEL[status] || status) + ' (' + fmtShort(tgl) + ')', 'success');
-    status = null;
-    renderStatus(); checkDup(); recent();
+    status = null; renderStatus(); checkDup(); recent();
   });
 }
 
@@ -844,22 +622,15 @@ function renderUserForm(){
    LOGIN
    ================================================================ */
 function renderLogin(){
-  var lastUser = '';
-  try { lastUser = localStorage.getItem(LS_USER) || ''; } catch (e){}
+  var lastUser = ''; try { lastUser = localStorage.getItem(LS_USER) || ''; } catch (e){}
   var themeIcon = DB.settings.theme === 'dark' ? '🌙' : '☀️';
   var html = [];
-  html.push('<div class="login-wrap">');
-  html.push('<div class="login-card">');
-  html.push('<div class="brand-logo">🔐</div>');
-  html.push('<h1>Login Admin</h1>');
-  html.push('<p class="muted">Masuk untuk mengelola data absensi</p>');
+  html.push('<div class="login-wrap"><div class="login-card">');
+  html.push('<div class="brand-logo">🔐</div><h1>Login Admin</h1><p class="muted">Masuk untuk mengelola data absensi</p>');
   html.push('<form id="loginForm">');
   html.push('<label class="fld"><span>Username</span><input type="text" id="lgUser" value="' + esc(lastUser) + '" placeholder="Username"></label>');
-  html.push('<label class="fld"><span>Password</span><div class="pw">');
-  html.push('<input type="password" id="lgPass" placeholder="Password">');
-  html.push('<button type="button" id="togglePw">👁️</button>');
-  html.push('</div></label>');
-  html.push('<button class="btn primary block" id="lgBtn" type="submit"><span id="lgSpin" class="spin-sm hidden"></span><span id="lgTxt">Masuk</span></button>');
+  html.push('<label class="fld"><span>Password</span><div class="pw"><input type="password" id="lgPass" placeholder="Password"><button type="button" id="togglePw">👁️</button></div></label>');
+  html.push('<button class="btn primary block" id="lgBtn" type="submit"><span class="spin-sm hidden" id="lgSpin"></span><span id="lgTxt">Masuk</span></button>');
   html.push('</form>');
   html.push('<div class="divider"><span>atau</span></div>');
   html.push('<button class="btn ghost block" id="btnBackUser">← Kembali ke Form Pengguna</button>');
@@ -868,18 +639,13 @@ function renderLogin(){
   $('#app').innerHTML = html.join('');
   var app = $('#app'); if (app) app.setAttribute('data-ok', '1');
 
-  $('#togglePw').addEventListener('click', function(){
-    var p = $('#lgPass');
-    p.type = p.type === 'password' ? 'text' : 'password';
-  });
+  $('#togglePw').addEventListener('click', function(){ var p = $('#lgPass'); p.type = p.type === 'password' ? 'text' : 'password'; });
   $('#btnThemeLogin').addEventListener('click', toggleTheme);
   $('#btnBackUser').addEventListener('click', function(){ goBack(); });
   $('#loginForm').addEventListener('submit', function(e){
     e.preventDefault();
-    var u = $('#lgUser').value.trim();
-    var p = $('#lgPass').value;
+    var u = $('#lgUser').value.trim(), p = $('#lgPass').value;
     if (!u || !p){ toast('Username dan password wajib diisi', 'error'); return; }
-
     if (u === DB.settings.adminUser && p === DB.settings.adminPass){
       try { localStorage.setItem(LS_USER, u); } catch (e){}
       toast('Login admin berhasil', 'success');
@@ -896,46 +662,30 @@ function renderLogin(){
 }
 
 /* ================================================================
-   ADMIN
+   ADMIN — dengan EVENT DELEGATION
    ================================================================ */
 function renderAdmin(){
   var page = (DB.session && DB.session.page) || 'dashboard';
   var titles = { dashboard: 'Dashboard', guru: 'Data Guru / Staf', laporan: 'Laporan', absensi: 'Data Absensi', pengaturan: 'Pengaturan' };
   var themeIcon = DB.settings.theme === 'dark' ? '🌙' : '☀️';
 
-  /* ---- Shell reuse: kalau layout admin sudah ada, hanya update konten ---- */
   var shell = document.querySelector('.layout[data-role="admin"]');
   if (shell){
-    $$('[data-nav]', shell).forEach(function(a){
-      a.classList.toggle('active', a.getAttribute('data-nav') === page);
-    });
-    var tbTitle = shell.querySelector('.tb-title');
-    if (tbTitle) tbTitle.textContent = titles[page] || 'Dashboard';
-    var tb = shell.querySelector('#btnTheme');
-    if (tb) tb.textContent = themeIcon;
+    $$('[data-nav]', shell).forEach(function(a){ a.classList.toggle('active', a.getAttribute('data-nav') === page); });
+    var tbTitle = shell.querySelector('.tb-title'); if (tbTitle) tbTitle.textContent = titles[page] || 'Dashboard';
+    var tb = shell.querySelector('#btnTheme'); if (tb) tb.textContent = themeIcon;
     var sbEl = shell.querySelector('#sidebar'); if (sbEl) sbEl.classList.remove('open');
     setSync(ONLINE ? (pendingCount() ? 'pending' : 'synced') : 'offline');
-
-    var c = shell.querySelector('#content');
-    if (c){
-      if (page === 'dashboard') pageDashboard(c);
-      else if (page === 'guru') pageGuru(c);
-      else if (page === 'laporan') pageLaporan(c);
-      else if (page === 'absensi') pageAbsensi(c);
-      else if (page === 'pengaturan') pagePengaturan(c);
-      else pageDashboard(c);
-      return;
-    }
+    var c0 = shell.querySelector('#content');
+    if (c0){ paintAdminPage(c0, page); return; }
   }
 
-  /* ---- Full rebuild (pertama kali, atau setelah balik dari form user) ---- */
   function navLink(key, icon, label){
     return '<a data-nav="' + key + '" class="' + (page === key ? 'active' : '') + '"><i>' + icon + '</i>' + label + '</a>';
   }
   var html = [];
   html.push('<div class="layout" data-role="admin">');
-  html.push('<aside class="sidebar" id="sidebar">');
-  html.push('<div class="side-brand"><div class="logo">📖</div><div><strong>One Day</strong><span>Half Juz</span></div></div>');
+  html.push('<aside class="sidebar" id="sidebar"><div class="side-brand"><div class="logo">📖</div><div><strong>One Day</strong><span>Half Juz</span></div></div>');
   html.push('<nav class="nav">');
   html.push(navLink('dashboard', '📊', 'Dashboard'));
   html.push(navLink('guru', '👥', 'Data Guru / Staf'));
@@ -943,30 +693,21 @@ function renderAdmin(){
   html.push(navLink('absensi', '🗂️', 'Data Absensi'));
   html.push(navLink('pengaturan', '⚙️', 'Pengaturan'));
   html.push('</nav>');
-  html.push('<div class="side-foot">');
-  html.push('<button class="btn ghost sm" id="btnUserForm">✍️ Form Pengguna</button>');
-  html.push('<button class="btn ghost sm" id="btnLogout">⏻ Keluar Admin</button>');
-  html.push('</div></aside>');
-  html.push('<div class="main">');
-  html.push('<header class="topbar">');
-  html.push('<button class="icon-btn" id="btnBack" title="Kembali (Alt+←)">◀</button>');
+  html.push('<div class="side-foot"><button class="btn ghost sm" id="btnUserForm">✍️ Form Pengguna</button><button class="btn ghost sm" id="btnLogout">⏻ Keluar Admin</button></div></aside>');
+  html.push('<div class="main"><header class="topbar">');
+  html.push('<button class="icon-btn" id="btnBack" title="Kembali">◀</button>');
   html.push('<button class="icon-btn only-mobile" id="btnMenu">☰</button>');
   html.push('<div class="tb-title">' + (titles[page] || 'Dashboard') + '</div>');
-  html.push('<div class="tb-right">');
-  html.push('<div class="sync" id="syncBadge"><span class="dot ok"></span> Tersinkron</div>');
-  html.push('<button class="icon-btn" id="btnTheme" title="Ganti tema">' + themeIcon + '</button>');
-  html.push('</div></header>');
-  html.push('<div class="content" id="content"></div>');
-  html.push('</div></div>');
+  html.push('<div class="tb-right"><div class="sync" id="syncBadge"><span class="dot ok"></span> Tersinkron</div>');
+  html.push('<button class="icon-btn" id="btnTheme" title="Ganti tema">' + themeIcon + '</button></div>');
+  html.push('</header><div class="content" id="content"></div></div></div>');
   $('#app').innerHTML = html.join('');
   var app = $('#app'); if (app) app.setAttribute('data-ok', '1');
 
   setSync(ONLINE ? (pendingCount() ? 'pending' : 'synced') : 'offline');
 
   $$('[data-nav]').forEach(function(a){
-    a.addEventListener('click', function(){
-      navigate('admin', a.getAttribute('data-nav'));
-    });
+    a.addEventListener('click', function(){ navigate('admin', a.getAttribute('data-nav')); });
   });
   $('#btnBack').addEventListener('click', goBack);
   $('#btnTheme').addEventListener('click', toggleTheme);
@@ -975,6 +716,31 @@ function renderAdmin(){
   $('#btnUserForm').addEventListener('click', function(){ navigate('user'); });
 
   var c = $('#content');
+  installContentDelegation(c);
+  paintAdminPage(c, page);
+}
+
+/* ---------- EVENT DELEGATION — inti perbaikan ---------- */
+function installContentDelegation(c){
+  if (!c || c._delegated) return;
+  c._delegated = true;
+  c.addEventListener('click', function(e){
+    var t = e.target;
+    if (!t || !t.closest) return;
+
+    var el;
+    el = t.closest('[data-edit]');
+    if (el){ e.preventDefault(); guruForm(el.getAttribute('data-edit')); return; }
+
+    el = t.closest('[data-del]');
+    if (el){ e.preventDefault(); deleteGuruById(el.getAttribute('data-del')); return; }
+
+    el = t.closest('[data-delentry]');
+    if (el){ e.preventDefault(); deleteEntryById(el.getAttribute('data-delentry')); return; }
+  });
+}
+
+function paintAdminPage(c, page){
   if (page === 'dashboard') pageDashboard(c);
   else if (page === 'guru') pageGuru(c);
   else if (page === 'laporan') pageLaporan(c);
@@ -983,7 +749,41 @@ function renderAdmin(){
   else pageDashboard(c);
 }
 
+/* ---------- Delete helpers (delegation target) ---------- */
+function deleteGuruById(id){
+  var g = DB.guru.filter(function(x){ return x.id === id; })[0];
+  if (!g) return;
+  if (!confirm('Hapus "' + g.nama + '"?')) return;
+  markLocal();
+  DB.guru = DB.guru.filter(function(x){ return x.id !== id; });
+  DB.absensi = DB.absensi.filter(function(a){ return a.guruId !== id; });
+  saveDB();
+  toast('Data dihapus', 'success');
+  var cc = $('#content'); if (cc) pageGuru(cc);
+  push({ type: 'deleteGuru', ids: [id] });
+}
+
+function deleteEntryById(id){
+  var a = DB.absensi.filter(function(x){ return x.id === id; })[0];
+  if (!a) return;
+  if (!confirm('Hapus entri ' + a.nama + ' tanggal ' + fmtShort(a.tanggal) + '?')) return;
+  markLocal();
+  DB.absensi = DB.absensi.filter(function(x){ return x.id !== id; });
+  saveDB();
+  toast('Entri dihapus', 'success');
+  var page = (DB.session && DB.session.page) || 'dashboard';
+  if (page === 'laporan'){
+    if (typeof repState !== 'undefined' && repState.result){ repState.result = buildResult(); paintPreview(); }
+  } else if (page === 'absensi'){
+    var c1 = $('#content'); if (c1) pageAbsensi(c1);
+  } else {
+    var c2 = $('#content'); if (c2) pageGuru(c2);
+  }
+  push({ type: 'deleteAbsensi', ids: [id] });
+}
+
 function toggleTheme(){
+  markLocal();
   DB.settings.theme = DB.settings.theme === 'dark' ? 'light' : 'dark';
   applyTheme(); saveDB(); render();
   push({ type: 'saveSettings', row: settingsRow() });
@@ -1014,45 +814,25 @@ function ranking(from, to){
   return Object.keys(map).map(function(k){ return map[k]; });
 }
 function pageDashboard(c){
-  var today = todayStr();
-  var ym = today.slice(0, 7);
+  var today = todayStr(), ym = today.slice(0, 7);
   var from = ym + '-01', to = ym + '-' + pad(lastDayOfMonth(ym));
-  var t = countStatus(today, today);
-  var m = countStatus(from, to);
+  var t = countStatus(today, today), m = countStatus(from, to);
   var tahun = DB.settings.activeYear + '-01-01', tahunEnd = DB.settings.activeYear + '-12-31';
   var y = countStatus(tahun, tahunEnd);
-
   var days = [];
   for (var i = 6; i >= 0; i--){
     var d = new Date(); d.setDate(d.getDate() - i);
     var key = d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate());
-    days.push({
-      key: key,
-      lbl: HARI[d.getDay()].slice(0, 3),
-      n: (DB.absensi || []).filter(function(a){ return a.tanggal === key && a.status === 'tilawah'; }).length
-    });
+    days.push({ key: key, lbl: HARI[d.getDay()].slice(0, 3), n: (DB.absensi || []).filter(function(a){ return a.tanggal === key && a.status === 'tilawah'; }).length });
   }
-  var maxD = 1;
-  days.forEach(function(d){ if (d.n > maxD) maxD = d.n; });
-
+  var maxD = 1; days.forEach(function(d){ if (d.n > maxD) maxD = d.n; });
   var top = ranking(tahun, tahunEnd).filter(function(r){ return r.tilawah > 0; })
-    .sort(function(a, b){ return b.tilawah - a.tilawah || a.guru.nama.localeCompare(b.guru.nama); })
-    .slice(0, 5);
-
-  var chartHTML = days.map(function(d){
-    return '<div class="col"><div class="bar" style="height:' + Math.round(d.n / maxD * 100) + '%"><span>' + d.n + '</span></div><div class="lbl">' + d.lbl + '</div></div>';
-  }).join('');
-
+    .sort(function(a, b){ return b.tilawah - a.tilawah || a.guru.nama.localeCompare(b.guru.nama); }).slice(0, 5);
+  var chartHTML = days.map(function(d){ return '<div class="col"><div class="bar" style="height:' + Math.round(d.n / maxD * 100) + '%"><span>' + d.n + '</span></div><div class="lbl">' + d.lbl + '</div></div>'; }).join('');
   var topHTML = top.length ? top.map(function(r, i){
     var cls = i === 0 ? '' : (i === 1 ? 'silver' : (i === 2 ? 'bronze' : 'plain'));
-    return '<div class="rank-item">'
-      + '<div class="rank-no ' + cls + '">' + (i + 1) + '</div>'
-      + '<div style="flex:1;min-width:0"><div style="font-weight:700;font-size:14px">' + esc(r.guru.nama) + '</div>'
-      + '<div class="muted" style="font-size:12px">' + (r.guru.jk === 'P' ? 'Akhwat' : 'Ikhwan') + '</div></div>'
-      + '<div style="text-align:right"><div style="font-weight:800;color:var(--green)">' + r.tilawah + '</div>'
-      + '<div class="muted" style="font-size:11px">tilawah</div></div></div>';
+    return '<div class="rank-item"><div class="rank-no ' + cls + '">' + (i + 1) + '</div><div style="flex:1;min-width:0"><div style="font-weight:700;font-size:14px">' + esc(r.guru.nama) + '</div><div class="muted" style="font-size:12px">' + (r.guru.jk === 'P' ? 'Akhwat' : 'Ikhwan') + '</div></div><div style="text-align:right"><div style="font-weight:800;color:var(--green)">' + r.tilawah + '</div><div class="muted" style="font-size:11px">tilawah</div></div></div>';
   }).join('') : '<p class="muted">Belum ada data tilawah.</p>';
-
   c.innerHTML = ''
     + '<div class="grid-stats">'
     + '<div class="stat g1"><div class="ic">👥</div><b>' + DB.guru.length + '</b><small>Total Guru / Staf</small></div>'
@@ -1075,10 +855,8 @@ function guruSelIds(){ return Object.keys(guruSel); }
 
 function pageGuru(c){
   var q = guruSearch.toLowerCase();
-  var list = DB.guru.map(function(g, i){ return { g: g, i: i }; })
-    .filter(function(x){ return !q || x.g.nama.toLowerCase().indexOf(q) !== -1; });
+  var list = DB.guru.map(function(g, i){ return { g: g, i: i }; }).filter(function(x){ return !q || x.g.nama.toLowerCase().indexOf(q) !== -1; });
   var selN = guruSelSize();
-
   var rowsHTML = list.length ? list.map(function(x){
     var g = x.g, i = x.i;
     return '<tr data-id="' + esc(g.id) + '" data-index="' + i + '">'
@@ -1097,16 +875,15 @@ function pageGuru(c){
     + '<button class="btn primary sm" id="btnAddGuru">➕ Tambah</button>'
     + '<button class="btn danger sm" id="btnDelSel" ' + (selN ? '' : 'disabled') + '>🗑️ Hapus Terpilih (' + selN + ')</button></div>'
     + '<div class="row" style="margin-bottom:12px"><input id="guruSearch" placeholder="🔍 Cari nama…" value="' + esc(guruSearch) + '" style="max-width:280px">'
-    + '<div class="spacer"></div>'
-    + '<button class="btn sm" id="btnImport">📥 Import Excel</button>'
-    + '<button class="btn sm" id="btnPaste">📋 Copy–Paste</button></div>'
+    + '<div class="spacer"></div><button class="btn sm" id="btnImport">📥 Import Excel</button><button class="btn sm" id="btnPaste">📋 Copy–Paste</button></div>'
     + '<div class="tbl-wrap"><table id="tblGuru"><thead><tr>'
     + '<th style="width:38px"><input type="checkbox" id="chkAll" style="width:auto"></th>'
-    + '<th style="width:34px"></th><th style="width:70px">No</th><th>Nama</th>'
-    + '<th style="width:150px">Jenis Kelamin</th><th style="width:120px">Aksi</th>'
+    + '<th style="width:34px"></th><th style="width:70px">No</th><th>Nama</th><th style="width:150px">Jenis Kelamin</th><th style="width:120px">Aksi</th>'
     + '</tr></thead><tbody>' + rowsHTML + '</tbody></table></div>'
     + '<p class="muted" style="font-size:12px;margin:10px 0 0">💡 Centang data untuk aktifkan tombol hapus.</p>'
     + '</div>';
+
+  /* NOTE: [data-edit] dan [data-del] TIDAK di-bind di sini — ditangani oleh event delegation di #content */
 
   $('#guruSearch').addEventListener('input', function(e){
     guruSearch = e.target.value;
@@ -1120,11 +897,10 @@ function pageGuru(c){
     if (!guruSelSize()) return;
     if (!confirm('Hapus ' + guruSelSize() + ' data terpilih? Data absensi terkait juga akan dihapus.')) return;
     var ids = guruSelIds();
+    markLocal();
     DB.guru = DB.guru.filter(function(g){ return !guruSel[g.id]; });
     DB.absensi = DB.absensi.filter(function(a){ return !guruSel[a.guruId]; });
-    var n = guruSelSize();
-    guruSelClear();
-    saveDB();
+    var n = guruSelSize(); guruSelClear(); saveDB();
     toast(n + ' data dihapus', 'success');
     pageGuru(c);
     push({ type: 'deleteGuru', ids: ids });
@@ -1133,10 +909,10 @@ function pageGuru(c){
     var chk = this.checked;
     $$('.chkRow').forEach(function(ch){
       ch.checked = chk;
-      if (chk) guruSel[ch.getAttribute('data-id')] = true;
-      else delete guruSel[ch.getAttribute('data-id')];
+      if (chk) guruSel[ch.getAttribute('data-id')] = true; else delete guruSel[ch.getAttribute('data-id')];
     });
-    pageGuru(c);
+    var btn = $('#btnDelSel');
+    if (btn){ btn.disabled = !guruSelSize(); btn.textContent = '🗑️ Hapus Terpilih (' + guruSelSize() + ')'; }
   });
   $$('.chkRow').forEach(function(ch){
     ch.addEventListener('change', function(){
@@ -1144,21 +920,6 @@ function pageGuru(c){
       if (ch.checked) guruSel[id] = true; else delete guruSel[id];
       var btn = $('#btnDelSel');
       if (btn){ btn.disabled = !guruSelSize(); btn.textContent = '🗑️ Hapus Terpilih (' + guruSelSize() + ')'; }
-    });
-  });
-  $$('[data-edit]').forEach(function(b){ b.addEventListener('click', function(){ guruForm(b.getAttribute('data-edit')); }); });
-  $$('[data-del]').forEach(function(b){
-    b.addEventListener('click', function(){
-      var id = b.getAttribute('data-del');
-      var g = DB.guru.filter(function(x){ return x.id === id; })[0];
-      if (!g) return;
-      if (!confirm('Hapus "' + g.nama + '"?')) return;
-      DB.guru = DB.guru.filter(function(x){ return x.id !== g.id; });
-      DB.absensi = DB.absensi.filter(function(a){ return a.guruId !== g.id; });
-      saveDB();
-      toast('Data dihapus', 'success');
-      pageGuru(c);
-      push({ type: 'deleteGuru', ids: [g.id] });
     });
   });
   $$('.urutInput').forEach(function(inp){
@@ -1176,15 +937,17 @@ function moveGuru(id, newIndex){
   var item = DB.guru.splice(i, 1)[0];
   newIndex = Math.max(0, Math.min(DB.guru.length, newIndex));
   DB.guru.splice(newIndex, 0, item);
-  saveDB();
+  markLocal(); saveDB();
   push({ type: 'upsertGuru', rows: guruRows() });
-  var c = $('#content');
-  if (c) pageGuru(c);
+  var c = $('#content'); if (c) pageGuru(c);
 }
 
 function guruForm(id){
   var g = null;
-  if (id) for (var k = 0; k < DB.guru.length; k++) if (DB.guru[k].id === id){ g = DB.guru[k]; break; }
+  if (id){
+    for (var k = 0; k < DB.guru.length; k++) if (DB.guru[k].id === id){ g = DB.guru[k]; break; }
+    if (!g){ toast('Data guru tidak ditemukan — mungkin sudah dihapus', 'error'); var cc = $('#content'); if (cc) pageGuru(cc); return; }
+  }
   openModal(
     '<h3 class="st">' + (g ? '✏️ Edit' : '➕ Tambah') + ' Data Guru</h3>'
     + '<label class="fld"><span>Nama Lengkap</span><input id="fNama" value="' + esc(g ? g.nama : '') + '"></label>'
@@ -1202,6 +965,7 @@ function guruForm(id){
         var nama = bg.querySelector('#fNama').value.trim();
         var jk = bg.querySelector('#fJK').value;
         if (!nama){ toast('Nama tidak boleh kosong', 'error'); return; }
+        markLocal();
         if (g){ g.nama = nama; g.jk = jk; }
         else DB.guru.push({ id: uid(), nama: nama, jk: jk });
         saveDB();
@@ -1217,8 +981,7 @@ function guruForm(id){
 
 function importDialog(){
   openModal(
-    '<h3 class="st">📥 Import Excel / CSV</h3>'
-    + '<p class="muted" style="font-size:13px">Format: Nama | JK (L/P). Baris pertama boleh header.</p>'
+    '<h3 class="st">📥 Import Excel / CSV</h3><p class="muted" style="font-size:13px">Format: Nama | JK (L/P). Baris pertama boleh header.</p>'
     + '<div class="drop-zone" id="dz"><div style="font-size:34px">📄</div><div style="font-weight:700;margin-top:6px">Tarik file atau klik</div><div style="font-size:12px">.xlsx, .xls, .csv</div></div>'
     + '<input type="file" id="fileInput" accept=".xlsx,.xls,.csv" class="hidden">'
     + '<div class="row" style="justify-content:flex-end;margin-top:14px"><button class="btn ghost" data-cancel>Tutup</button></div>',
@@ -1228,13 +991,8 @@ function importDialog(){
       dz.addEventListener('click', function(){ fi.click(); });
       dz.addEventListener('dragover', function(e){ e.preventDefault(); dz.classList.add('hover'); });
       dz.addEventListener('dragleave', function(){ dz.classList.remove('hover'); });
-      dz.addEventListener('drop', function(e){
-        e.preventDefault();
-        dz.classList.remove('hover');
-        if (e.dataTransfer.files[0]) handleFile(e.dataTransfer.files[0]);
-      });
+      dz.addEventListener('drop', function(e){ e.preventDefault(); dz.classList.remove('hover'); if (e.dataTransfer.files[0]) handleFile(e.dataTransfer.files[0]); });
       fi.addEventListener('change', function(){ if (fi.files[0]) handleFile(fi.files[0]); });
-
       function handleFile(file){
         busy(true, 'Membaca file…');
         var reader = new FileReader();
@@ -1250,8 +1008,7 @@ function importDialog(){
               rows = text.split(/\r?\n/).filter(Boolean).map(function(l){ return l.split(/[;,\t]/); });
             }
           } catch (err){ busy(false); toast('Gagal membaca file', 'error'); return; }
-          busy(false);
-          closeModal();
+          busy(false); closeModal();
           var added = importRows(rows);
           toast(added ? added + ' data diimport' : 'Tidak ada data baru', added ? 'success' : 'info');
           var cc = $('#content'); if (cc) pageGuru(cc);
@@ -1271,23 +1028,18 @@ function importRows(rows){
     if (!nama) return;
     if (idx === 0 && /^(nama|name)/i.test(nama)) return;
     var jkRaw = String(r[1] == null ? '' : r[1]).trim().toUpperCase();
-    var jk = 'L';
-    if (/^(P|PEREMPUAN|AKHWAT|WANITA|F|FEMALE)/.test(jkRaw)) jk = 'P';
+    var jk = /^(P|PEREMPUAN|AKHWAT|WANITA|F|FEMALE)/.test(jkRaw) ? 'P' : 'L';
     if (DB.guru.some(function(g){ return g.nama.toLowerCase() === nama.toLowerCase(); })) return;
     DB.guru.push({ id: uid(), nama: nama, jk: jk });
     added++;
   });
-  if (added){
-    saveDB();
-    push({ type: 'upsertGuru', rows: guruRows() });
-  }
+  if (added){ markLocal(); saveDB(); push({ type: 'upsertGuru', rows: guruRows() }); }
   return added;
 }
 
 function pasteDialog(){
   openModal(
-    '<h3 class="st">📋 Copy–Paste</h3>'
-    + '<p class="muted" style="font-size:13px">Satu baris satu guru: Nama [Tab] L/P</p>'
+    '<h3 class="st">📋 Copy–Paste</h3><p class="muted" style="font-size:13px">Satu baris satu guru: Nama [Tab] L/P</p>'
     + '<textarea id="pasteArea" rows="9" placeholder="Ahmad Fauzi&#9;L&#10;Siti Aminah&#9;P"></textarea>'
     + '<div class="row" style="justify-content:flex-end;margin-top:14px">'
     + '<button class="btn ghost" data-cancel>Batal</button>'
@@ -1298,9 +1050,7 @@ function pasteDialog(){
       bg.querySelector('#pasteSave').addEventListener('click', function(){
         var txt = bg.querySelector('#pasteArea').value.trim();
         if (!txt){ toast('Data masih kosong', 'error'); return; }
-        var rows = txt.split(/\r?\n/).filter(Boolean).map(function(l){
-          return l.split(/\t|;|,|\|/).map(function(x){ return x.trim(); });
-        });
+        var rows = txt.split(/\r?\n/).filter(Boolean).map(function(l){ return l.split(/\t|;|,|\|/).map(function(x){ return x.trim(); }); });
         var added = importRows(rows);
         closeModal();
         toast(added ? added + ' data ditambahkan' : 'Tidak ada data baru', added ? 'success' : 'info');
@@ -1315,33 +1065,23 @@ var repState = {
   type: 'rekap', mode: 'bulanan',
   date: todayStr(), from: todayStr(), to: todayStr(),
   month: todayStr().slice(0, 7), year: new Date().getFullYear(),
-  sort: 'newest', pageSize: 10, page: 1, result: null,
-  guruFilter: 'all'
+  sort: 'newest', pageSize: 10, page: 1, result: null, guruFilter: 'all'
 };
 
 function getRange(){
   var m = repState.mode;
   if (m === 'harian') return { from: repState.date, to: repState.date };
   if (m === 'rentang') return { from: repState.from, to: repState.to };
-  if (m === 'bulanan'){
-    var d = lastDayOfMonth(repState.month);
-    return { from: repState.month + '-01', to: repState.month + '-' + pad(d) };
-  }
+  if (m === 'bulanan'){ var d = lastDayOfMonth(repState.month); return { from: repState.month + '-01', to: repState.month + '-' + pad(d) }; }
   return { from: repState.year + '-01-01', to: repState.year + '-12-31' };
 }
 function sortByGuruOrder(arr){
-  var order = {};
-  DB.guru.forEach(function(g, i){ order[g.id] = i; });
-  arr.sort(function(a, b){
-    var oa = (order[a.guru.id] == null ? 99999 : order[a.guru.id]);
-    var ob = (order[b.guru.id] == null ? 99999 : order[b.guru.id]);
-    return oa - ob;
-  });
+  var order = {}; DB.guru.forEach(function(g, i){ order[g.id] = i; });
+  arr.sort(function(a, b){ var oa = (order[a.guru.id] == null ? 99999 : order[a.guru.id]); var ob = (order[b.guru.id] == null ? 99999 : order[b.guru.id]); return oa - ob; });
   return arr;
 }
 function buildResult(){
-  var r = getRange();
-  var from = r.from, to = r.to;
+  var r = getRange(), from = r.from, to = r.to;
   if (repState.type === 'detail'){
     var rows = DB.absensi.filter(function(a){ return a.tanggal >= from && a.tanggal <= to; });
     rows.sort(function(a, b){ return repState.sort === 'newest' ? b.createdAt - a.createdAt : a.createdAt - b.createdAt; });
@@ -1351,25 +1091,18 @@ function buildResult(){
   var filledArr = all.filter(function(x){ return x.total > 0; });
   var emptyArr = all.filter(function(x){ return x.total === 0; });
   var summary = { total: all.length, filled: filledArr.length, empty: emptyArr.length };
-  if (repState.type === 'belum'){
-    sortByGuruOrder(emptyArr);
-    return { type: 'belum', from: from, to: to, rows: emptyArr, summary: summary };
-  }
+  if (repState.type === 'belum'){ sortByGuruOrder(emptyArr); return { type: 'belum', from: from, to: to, rows: emptyArr, summary: summary }; }
   var filtered = all.slice();
   if (repState.guruFilter === 'filled') filtered = filtered.filter(function(x){ return x.total > 0; });
   else if (repState.guruFilter === 'empty') filtered = filtered.filter(function(x){ return x.total === 0; });
   if (repState.type === 'gender'){
-    var rowsL = filtered.filter(function(r){ return r.guru.jk === 'L'; });
-    var rowsP = filtered.filter(function(r){ return r.guru.jk === 'P'; });
+    var rowsL = filtered.filter(function(x){ return x.guru.jk === 'L'; });
+    var rowsP = filtered.filter(function(x){ return x.guru.jk === 'P'; });
     sortByGuruOrder(rowsL); sortByGuruOrder(rowsP);
     return { type: 'gender', from: from, to: to, rowsL: rowsL, rowsP: rowsP, summary: summary };
   }
   if (repState.type === 'peringkat'){
-    filtered.sort(function(a, b){
-      return b.tilawah - a.tilawah
-        || (b.total ? b.tilawah / b.total : 0) - (a.total ? a.tilawah / a.total : 0)
-        || a.guru.nama.localeCompare(b.guru.nama);
-    });
+    filtered.sort(function(a, b){ return b.tilawah - a.tilawah || (b.total ? b.tilawah / b.total : 0) - (a.total ? a.tilawah / a.total : 0) || a.guru.nama.localeCompare(b.guru.nama); });
     return { type: 'peringkat', from: from, to: to, rows: filtered, summary: summary };
   }
   sortByGuruOrder(filtered);
@@ -1415,15 +1148,10 @@ function pageLaporan(c){
   html.push('<button class="btn sm ' + (repState.sort === 'newest' ? 'primary' : '') + '" data-sort="newest">Terbaru</button>');
   html.push('<button class="btn sm ' + (repState.sort === 'oldest' ? 'primary' : '') + '" data-sort="oldest">Terlama</button>');
   html.push('</div></div>');
-  html.push('<div class="card" id="previewCard"><h3 class="st">👁️ Preview</h3>');
-  html.push('<div id="previewArea"><p class="muted">Klik Tampilkan Preview.</p></div></div>');
+  html.push('<div class="card" id="previewCard"><h3 class="st">👁️ Preview</h3><div id="previewArea"><p class="muted">Klik Tampilkan Preview.</p></div></div>');
   c.innerHTML = html.join('');
 
-  function syncMode(){
-    $$('.hid-mode').forEach(function(el){
-      el.classList.toggle('hidden', el.getAttribute('data-mode') !== repState.mode);
-    });
-  }
+  function syncMode(){ $$('.hid-mode').forEach(function(el){ el.classList.toggle('hidden', el.getAttribute('data-mode') !== repState.mode); }); }
   syncMode();
 
   $('#repType').addEventListener('change', function(e){ repState.type = e.target.value; });
@@ -1433,58 +1161,34 @@ function pageLaporan(c){
   $('#repTo').addEventListener('change', function(e){ repState.to = e.target.value; });
   $('#repMonth').addEventListener('change', function(e){ repState.month = e.target.value; });
   $('#repYear').addEventListener('change', function(e){ repState.year = parseInt(e.target.value, 10) || new Date().getFullYear(); });
-  $('#repGuruFilter').addEventListener('change', function(e){
-    repState.guruFilter = e.target.value;
-    if (repState.result){ repState.result = buildResult(); repState.page = 1; paintPreview(); }
-  });
+  $('#repGuruFilter').addEventListener('change', function(e){ repState.guruFilter = e.target.value; if (repState.result){ repState.result = buildResult(); repState.page = 1; paintPreview(); } });
   $$('[data-sort]').forEach(function(b){
     b.addEventListener('click', function(){
-      repState.sort = b.getAttribute('data-sort');
-      repState.page = 1;
+      repState.sort = b.getAttribute('data-sort'); repState.page = 1;
       $$('[data-sort]').forEach(function(x){ x.classList.toggle('primary', x.getAttribute('data-sort') === repState.sort); });
       if (repState.result){ repState.result = buildResult(); paintPreview(); }
     });
   });
-  $('#btnPreview').addEventListener('click', function(){
-    repState.result = buildResult();
-    repState.page = 1;
-    paintPreview();
-    toast('Preview diperbarui', 'success');
-  });
-  $('#btnPrint').addEventListener('click', function(){
-    if (!repState.result){ toast('Tampilkan preview dulu', 'error'); return; }
-    printReport(repState.result);
-  });
+  $('#btnPreview').addEventListener('click', function(){ repState.result = buildResult(); repState.page = 1; paintPreview(); toast('Preview diperbarui', 'success'); });
+  $('#btnPrint').addEventListener('click', function(){ if (!repState.result){ toast('Tampilkan preview dulu', 'error'); return; } printReport(repState.result); });
   if (repState.result) paintPreview();
 }
 
 function paintPreview(){
-  var area = $('#previewArea');
-  if (!area) return;
+  var area = $('#previewArea'); if (!area) return;
   var res = repState.result;
   if (!res){ area.innerHTML = '<p class="muted">Belum ada preview.</p>'; return; }
-
-  var typeLabel = res.type === 'detail' ? 'Detail Entri'
-    : res.type === 'gender' ? 'Rekap Ikhwan & Akhwat'
-    : res.type === 'peringkat' ? 'Peringkat'
-    : res.type === 'belum' ? 'Belum Mengisi'
-    : 'Rekap per No. Urut';
-
+  var typeLabel = res.type === 'detail' ? 'Detail Entri' : res.type === 'gender' ? 'Rekap Ikhwan & Akhwat' : res.type === 'peringkat' ? 'Peringkat' : res.type === 'belum' ? 'Belum Mengisi' : 'Rekap per No. Urut';
   if (res.type === 'gender'){
-    area.innerHTML = ''
-      + '<div class="row" style="margin-bottom:10px"><span class="badge b-l">' + typeLabel + '</span>'
-      + '<span class="muted" style="font-size:12.5px">Periode: <b>' + fmtShort(res.from) + '</b> s.d. <b>' + fmtShort(res.to) + '</b></span></div>'
+    area.innerHTML = '<div class="row" style="margin-bottom:10px"><span class="badge b-l">' + typeLabel + '</span><span class="muted" style="font-size:12.5px">Periode: <b>' + fmtShort(res.from) + '</b> s.d. <b>' + fmtShort(res.to) + '</b></span></div>'
       + summaryHTML(res.summary)
-      + '<div class="rekap-group"><h4><span class="grp-badge grp-ikhwan">IKHWAN</span> <span class="muted" style="font-size:12px;font-weight:600">— ' + res.rowsL.length + ' guru</span></h4>'
-      + '<div class="tbl-wrap">' + tableHTML(res.rowsL, 'rekap', 0) + '</div></div>'
-      + '<div class="rekap-group"><h4><span class="grp-badge grp-akhwat">AKHWAT</span> <span class="muted" style="font-size:12px;font-weight:600">— ' + res.rowsP.length + ' guru</span></h4>'
-      + '<div class="tbl-wrap">' + tableHTML(res.rowsP, 'rekap', 0) + '</div></div>';
+      + '<div class="rekap-group"><h4><span class="grp-badge grp-ikhwan">IKHWAN</span> — ' + res.rowsL.length + ' guru</h4><div class="tbl-wrap">' + tableHTML(res.rowsL, 'rekap', 0) + '</div></div>'
+      + '<div class="rekap-group"><h4><span class="grp-badge grp-akhwat">AKHWAT</span> — ' + res.rowsP.length + ' guru</h4><div class="tbl-wrap">' + tableHTML(res.rowsP, 'rekap', 0) + '</div></div>';
     return;
   }
   var rows = res.rows;
   if (!rows.length){
-    area.innerHTML = '<div class="row" style="margin-bottom:10px"><span class="badge b-l">' + typeLabel + '</span></div>'
-      + summaryHTML(res.summary)
+    area.innerHTML = '<div class="row" style="margin-bottom:10px"><span class="badge b-l">' + typeLabel + '</span></div>' + summaryHTML(res.summary)
       + '<p class="muted">' + (res.type === 'belum' ? '🎉 Semua guru sudah mengisi.' : 'Tidak ada data.') + '</p>';
     return;
   }
@@ -1493,136 +1197,75 @@ function paintPreview(){
   if (repState.page > totalPages) repState.page = totalPages;
   var start = (repState.page - 1) * per;
   var slice = rows.slice(start, start + per);
-  area.innerHTML = '<div class="row" style="margin-bottom:10px"><span class="badge b-l">' + typeLabel + '</span>'
-    + '<span class="muted" style="font-size:12.5px">Periode: <b>' + fmtShort(res.from) + '</b> s.d. <b>' + fmtShort(res.to) + '</b> — ' + rows.length + (res.type === 'detail' ? ' baris' : ' guru') + '</span></div>'
+  area.innerHTML = '<div class="row" style="margin-bottom:10px"><span class="badge b-l">' + typeLabel + '</span><span class="muted" style="font-size:12.5px">Periode: <b>' + fmtShort(res.from) + '</b> s.d. <b>' + fmtShort(res.to) + '</b> — ' + rows.length + (res.type === 'detail' ? ' baris' : ' guru') + '</span></div>'
     + summaryHTML(res.summary)
     + '<div class="tbl-wrap">' + tableHTML(slice, res.type, start) + '</div>';
-  bindPreviewHandlers(area);
 }
 
 function summaryHTML(sum){
   if (!sum) return '';
-  return '<div class="row" style="margin-bottom:10px;gap:8px">'
-    + '<span class="badge b-l">Total: ' + sum.total + '</span>'
-    + '<span class="badge b-filled">✓ Sudah: ' + sum.filled + '</span>'
-    + '<span class="badge b-belum">○ Belum: ' + sum.empty + '</span></div>';
-}
-
-function bindPreviewHandlers(area){
-  $$('[data-delentry]', area).forEach(function(b){
-    b.addEventListener('click', function(){
-      var id = b.getAttribute('data-delentry');
-      var a = null;
-      for (var k = 0; k < DB.absensi.length; k++) if (DB.absensi[k].id === id){ a = DB.absensi[k]; break; }
-      if (!a) return;
-      if (!confirm('Hapus entri ' + a.nama + ' tanggal ' + fmtShort(a.tanggal) + '?')) return;
-      DB.absensi = DB.absensi.filter(function(x){ return x.id !== a.id; });
-      saveDB();
-      toast('Entri dihapus', 'success');
-      push({ type: 'deleteAbsensi', ids: [a.id] });
-      repState.result = buildResult();
-      paintPreview();
-    });
-  });
+  return '<div class="row" style="margin-bottom:10px;gap:8px"><span class="badge b-l">Total: ' + sum.total + '</span><span class="badge b-filled">✓ Sudah: ' + sum.filled + '</span><span class="badge b-belum">○ Belum: ' + sum.empty + '</span></div>';
 }
 
 function tableHTML(rows, type, offset){
   if (type === 'detail'){
-    return '<table><thead><tr>'
-      + '<th style="width:50px">No</th><th>Tanggal</th><th>Nama</th><th>JK</th><th>Status</th><th>Waktu</th><th style="width:70px">Aksi</th>'
-      + '</tr></thead><tbody>'
+    return '<table><thead><tr><th style="width:50px">No</th><th>Tanggal</th><th>Nama</th><th>JK</th><th>Status</th><th>Waktu</th><th style="width:70px">Aksi</th></tr></thead><tbody>'
       + rows.map(function(a, i){
-          return '<tr>'
-            + '<td>' + (offset + i + 1) + '</td>'
-            + '<td>' + fmtShort(a.tanggal) + '</td>'
-            + '<td style="font-weight:600">' + esc(a.nama) + '</td>'
+          return '<tr><td>' + (offset + i + 1) + '</td><td>' + fmtShort(a.tanggal) + '</td><td style="font-weight:600">' + esc(a.nama) + '</td>'
             + '<td><span class="badge ' + (a.jk === 'P' ? 'b-p' : 'b-l') + '">' + (a.jk === 'P' ? 'Akhwat' : 'Ikhwan') + '</span></td>'
             + '<td><span class="badge ' + (STATUS_CLASS[a.status] || '') + '">' + (STATUS_LABEL[a.status] || a.status) + '</span></td>'
             + '<td class="muted" style="font-size:12.5px">' + fmtTime(a.createdAt) + '</td>'
-            + '<td><button class="btn sm danger" data-delentry="' + esc(a.id) + '">🗑️</button></td>'
-            + '</tr>';
+            + '<td><button class="btn sm danger" data-delentry="' + esc(a.id) + '">🗑️</button></td></tr>';
         }).join('') + '</tbody></table>';
   }
   return '<table><thead><tr>'
-    + '<th style="width:50px">' + (type === 'peringkat' ? 'Rank' : 'No') + '</th>'
-    + '<th>Nama Guru / Staf</th><th>JK</th>'
-    + '<th style="width:80px">Tilawah</th><th style="width:80px">Tidak</th><th style="width:60px">Haid</th>'
-    + '<th style="width:70px">Total</th><th style="width:130px">Status</th>'
+    + '<th style="width:50px">' + (type === 'peringkat' ? 'Rank' : 'No') + '</th><th>Nama Guru / Staf</th><th>JK</th>'
+    + '<th style="width:80px">Tilawah</th><th style="width:80px">Tidak</th><th style="width:60px">Haid</th><th style="width:70px">Total</th><th style="width:130px">Status</th>'
     + '</tr></thead><tbody>'
     + rows.map(function(r, i){
         var pct = r.total ? Math.round(r.tilawah / r.total * 100) : 0;
         var isEmpty = !r.total;
         var trClass = isEmpty ? ' class="row-belum"' : '';
-        var statusCell = isEmpty
-          ? '<td><span class="badge b-belum">○ Belum mengisi</span></td>'
-          : '<td><b>' + pct + '%</b></td>';
-        return '<tr' + trClass + '>'
-          + '<td><b>' + (offset + i + 1) + '</b></td>'
+        var statusCell = isEmpty ? '<td><span class="badge b-belum">○ Belum mengisi</span></td>' : '<td><b>' + pct + '%</b></td>';
+        return '<tr' + trClass + '><td><b>' + (offset + i + 1) + '</b></td>'
           + '<td style="font-weight:600">' + esc(r.guru.nama) + '</td>'
           + '<td><span class="badge ' + (r.guru.jk === 'P' ? 'b-p' : 'b-l') + '">' + (r.guru.jk === 'P' ? 'A' : 'I') + '</span></td>'
           + '<td style="color:var(--green);font-weight:800">' + (r.tilawah || '–') + '</td>'
           + '<td style="color:var(--amber);font-weight:700">' + (r.tidak || '–') + '</td>'
           + '<td style="color:var(--red);font-weight:700">' + (r.haid || '–') + '</td>'
-          + '<td>' + r.total + '</td>'
-          + statusCell + '</tr>';
+          + '<td>' + r.total + '</td>' + statusCell + '</tr>';
       }).join('') + '</tbody></table>';
 }
 
 function kopHTML(){
   var k = DB.settings.kop;
-  return '<div class="pr-kop">'
-    + (k.logo ? '<img src="' + esc(k.logo) + '">' : '')
-    + '<div>'
-    + (k.line1 ? '<div class="l1">' + esc(k.line1) + '</div>' : '')
-    + (k.line2 ? '<div class="l2">' + esc(k.line2) + '</div>' : '')
-    + (k.line3 ? '<div class="l3">' + esc(k.line3) + '</div>' : '')
-    + '</div></div>';
+  return '<div class="pr-kop">' + (k.logo ? '<img src="' + esc(k.logo) + '">' : '')
+    + '<div>' + (k.line1 ? '<div class="l1">' + esc(k.line1) + '</div>' : '') + (k.line2 ? '<div class="l2">' + esc(k.line2) + '</div>' : '') + (k.line3 ? '<div class="l3">' + esc(k.line3) + '</div>' : '') + '</div></div>';
 }
 
 function printReport(res){
-  var title = res.type === 'detail' ? 'DETAIL ABSENSI'
-    : res.type === 'gender' ? 'REKAP IKHWAN & AKHWAT'
-    : res.type === 'peringkat' ? 'REKAP PERINGKAT'
-    : res.type === 'belum' ? 'DAFTAR BELUM MENGISI'
-    : 'REKAP ABSENSI';
-
+  var title = res.type === 'detail' ? 'DETAIL ABSENSI' : res.type === 'gender' ? 'REKAP IKHWAN & AKHWAT' : res.type === 'peringkat' ? 'REKAP PERINGKAT' : res.type === 'belum' ? 'DAFTAR BELUM MENGISI' : 'REKAP ABSENSI';
   function buildTable(rws, isRank){
-    return '<table><thead><tr>'
-      + '<th style="width:34px">' + (isRank ? 'Rank' : 'No') + '</th><th>Nama</th><th style="width:46px">JK</th>'
-      + '<th style="width:60px">Tilawah</th><th style="width:56px">Tidak</th><th style="width:46px">Haid</th><th style="width:50px">Total</th><th style="width:70px">Status</th>'
-      + '</tr></thead><tbody>'
+    return '<table><thead><tr><th style="width:34px">' + (isRank ? 'Rank' : 'No') + '</th><th>Nama</th><th style="width:46px">JK</th><th style="width:60px">Tilawah</th><th style="width:56px">Tidak</th><th style="width:46px">Haid</th><th style="width:50px">Total</th><th style="width:70px">Status</th></tr></thead><tbody>'
       + rws.map(function(r, i){
           var pct = r.total ? Math.round(r.tilawah / r.total * 100) : 0;
-          var isEmpty = !r.total;
-          var statusCell = isEmpty ? '<td style="text-align:center;font-style:italic">Belum</td>' : '<td style="text-align:center">' + pct + '%</td>';
-          return '<tr><td style="text-align:center">' + (i + 1) + '</td><td>' + esc(r.guru.nama) + '</td>'
-            + '<td style="text-align:center">' + (r.guru.jk === 'P' ? 'A' : 'I') + '</td>'
-            + '<td style="text-align:center">' + (r.tilawah || '–') + '</td>'
-            + '<td style="text-align:center">' + (r.tidak || '–') + '</td>'
-            + '<td style="text-align:center">' + (r.haid || '–') + '</td>'
-            + '<td style="text-align:center">' + r.total + '</td>' + statusCell + '</tr>';
+          var statusCell = !r.total ? '<td style="text-align:center;font-style:italic">Belum</td>' : '<td style="text-align:center">' + pct + '%</td>';
+          return '<tr><td style="text-align:center">' + (i + 1) + '</td><td>' + esc(r.guru.nama) + '</td><td style="text-align:center">' + (r.guru.jk === 'P' ? 'A' : 'I') + '</td><td style="text-align:center">' + (r.tilawah || '–') + '</td><td style="text-align:center">' + (r.tidak || '–') + '</td><td style="text-align:center">' + (r.haid || '–') + '</td><td style="text-align:center">' + r.total + '</td>' + statusCell + '</tr>';
         }).join('') + '</tbody></table>';
   }
   var body = '';
   if (res.type === 'detail'){
     body = '<table><thead><tr><th>No</th><th>Tanggal</th><th>Nama</th><th>JK</th><th>Status</th><th>Waktu</th></tr></thead><tbody>'
-      + res.rows.map(function(a, i){
-          return '<tr><td style="text-align:center">' + (i + 1) + '</td><td>' + fmtShort(a.tanggal) + '</td><td>' + esc(a.nama) + '</td>'
-            + '<td style="text-align:center">' + (a.jk === 'P' ? 'A' : 'I') + '</td><td>' + (STATUS_LABEL[a.status] || a.status) + '</td><td>' + fmtTime(a.createdAt) + '</td></tr>';
-        }).join('') + '</tbody></table>';
+      + res.rows.map(function(a, i){ return '<tr><td style="text-align:center">' + (i + 1) + '</td><td>' + fmtShort(a.tanggal) + '</td><td>' + esc(a.nama) + '</td><td style="text-align:center">' + (a.jk === 'P' ? 'A' : 'I') + '</td><td>' + (STATUS_LABEL[a.status] || a.status) + '</td><td>' + fmtTime(a.createdAt) + '</td></tr>'; }).join('') + '</tbody></table>';
   } else if (res.type === 'gender'){
-    body = '<h5>IKHWAN (' + res.rowsL.length + ' guru)</h5>' + buildTable(res.rowsL, false)
-         + '<h5>AKHWAT (' + res.rowsP.length + ' guru)</h5>' + buildTable(res.rowsP, false);
+    body = '<h5>IKHWAN (' + res.rowsL.length + ' guru)</h5>' + buildTable(res.rowsL, false) + '<h5>AKHWAT (' + res.rowsP.length + ' guru)</h5>' + buildTable(res.rowsP, false);
   } else if (res.type === 'belum'){
     body = res.rows.length ? buildTable(res.rows, false) : '<p style="text-align:center;font-style:italic">Semua guru sudah mengisi.</p>';
   } else {
     body = buildTable(res.rows, res.type === 'peringkat');
   }
-  var summaryLine = res.summary
-    ? '<div class="sub" style="font-weight:700">Total: ' + res.summary.total + ' • Sudah: ' + res.summary.filled + ' • Belum: ' + res.summary.empty + '</div>'
-    : '';
-  var html = kopHTML()
-    + '<h4>' + title + '</h4>'
+  var summaryLine = res.summary ? '<div class="sub" style="font-weight:700">Total: ' + res.summary.total + ' • Sudah: ' + res.summary.filled + ' • Belum: ' + res.summary.empty + '</div>' : '';
+  var html = kopHTML() + '<h4>' + title + '</h4>'
     + '<div class="sub">Periode: ' + fmtID(res.from) + ' s.d. ' + fmtID(res.to) + ' • Dicetak: ' + fmtID(todayStr()) + '</div>'
     + summaryLine + body
     + '<div class="ttd"><div><div>Mengetahui,</div><div class="sp"></div><div style="border-top:1px solid #000;padding-top:3px">Kepala Sekolah</div></div></div>';
@@ -1636,38 +1279,19 @@ function pageAbsensi(c){
   var fEl = $('#absFrom'), tEl = $('#absTo');
   if (fEl && fEl.value) from = fEl.value;
   if (tEl && tEl.value) to = tEl.value;
-
-  c.innerHTML = '<div class="card">'
-    + '<h2 class="pt">🗂️ Data Absensi</h2>'
-    + '<p class="muted" style="font-size:13px;margin:4px 0 16px">Kelola entri absensi.</p>'
+  c.innerHTML = '<div class="card"><h2 class="pt">🗂️ Data Absensi</h2><p class="muted" style="font-size:13px;margin:4px 0 16px">Kelola entri absensi.</p>'
     + '<div class="row" style="align-items:flex-end">'
     + '<label class="fld" style="margin:0;min-width:150px"><span>Dari</span><input type="date" id="absFrom" value="' + from + '"></label>'
     + '<label class="fld" style="margin:0;min-width:150px"><span>Sampai</span><input type="date" id="absTo" value="' + to + '"></label>'
-    + '<button class="btn primary" id="absFilter">🔍 Tampilkan</button>'
-    + '<div class="spacer"></div>'
-    + '<button class="btn danger sm" id="absDelAll">🗑️ Hapus Semua Periode</button>'
-    + '</div></div>'
+    + '<button class="btn primary" id="absFilter">🔍 Tampilkan</button><div class="spacer"></div>'
+    + '<button class="btn danger sm" id="absDelAll">🗑️ Hapus Semua Periode</button></div></div>'
     + '<div class="card"><h3 class="st">📋 Daftar Entri</h3><div id="absList"></div></div>';
 
   function paint(){
     var f = $('#absFrom').value, t = $('#absTo').value;
-    var rows = (DB.absensi || []).filter(function(a){ return a.tanggal >= f && a.tanggal <= t; })
-                                 .sort(function(a, b){ return b.createdAt - a.createdAt; });
-    $('#absList').innerHTML = rows.length
-      ? '<div class="tbl-wrap">' + tableHTML(rows, 'detail', 0) + '</div>'
-      : '<p class="muted">Tidak ada entri.</p>';
-    $$('[data-delentry]', $('#absList')).forEach(function(b){
-      b.addEventListener('click', function(){
-        var id = b.getAttribute('data-delentry');
-        var a = null;
-        for (var k = 0; k < DB.absensi.length; k++) if (DB.absensi[k].id === id){ a = DB.absensi[k]; break; }
-        if (!a || !confirm('Hapus entri ' + a.nama + '?')) return;
-        DB.absensi = DB.absensi.filter(function(x){ return x.id !== a.id; });
-        saveDB(); toast('Entri dihapus', 'success');
-        push({ type: 'deleteAbsensi', ids: [a.id] });
-        paint();
-      });
-    });
+    var rows = (DB.absensi || []).filter(function(a){ return a.tanggal >= f && a.tanggal <= t; }).sort(function(a, b){ return b.createdAt - a.createdAt; });
+    $('#absList').innerHTML = rows.length ? '<div class="tbl-wrap">' + tableHTML(rows, 'detail', 0) + '</div>' : '<p class="muted">Tidak ada entri.</p>';
+    /* NOTE: [data-delentry] di-handle oleh delegation di #content */
   }
   $('#absFilter').addEventListener('click', paint);
   $('#absDelAll').addEventListener('click', function(){
@@ -1675,6 +1299,7 @@ function pageAbsensi(c){
     var n = DB.absensi.filter(function(a){ return a.tanggal >= f && a.tanggal <= t; }).length;
     if (!n){ toast('Tidak ada entri', 'info'); return; }
     if (!confirm('Hapus ' + n + ' entri?')) return;
+    markLocal();
     DB.absensi = DB.absensi.filter(function(a){ return a.tanggal < f || a.tanggal > t; });
     saveDB(); toast(n + ' entri dihapus', 'success');
     push({ type: 'deleteAbsensiRange', from: f, to: t });
@@ -1687,23 +1312,12 @@ function pageAbsensi(c){
 function pagePengaturan(c){
   var s = DB.settings;
   var yearsHTML = s.years.slice().sort(function(a, b){ return b.year - a.year; }).map(function(y){
-    return '<tr><td><b>' + y.year + '</b></td>'
-      + '<td>' + (y.active ? '<span class="badge b-tilawah">Aktif</span>' : '<span class="badge b-tidak">Tidak Aktif</span>') + '</td>'
-      + '<td class="row" style="gap:6px">'
-      + (y.active ? '' : '<button class="btn sm ok" data-aktif="' + y.year + '">✅ Aktifkan</button>')
-      + (s.years.length > 1 ? '<button class="btn sm danger" data-delyear="' + y.year + '">🗑️</button>' : '')
-      + '</td></tr>';
+    return '<tr><td><b>' + y.year + '</b></td><td>' + (y.active ? '<span class="badge b-tilawah">Aktif</span>' : '<span class="badge b-tidak">Tidak Aktif</span>') + '</td>'
+      + '<td class="row" style="gap:6px">' + (y.active ? '' : '<button class="btn sm ok" data-aktif="' + y.year + '">✅ Aktifkan</button>') + (s.years.length > 1 ? '<button class="btn sm danger" data-delyear="' + y.year + '">🗑️</button>' : '') + '</td></tr>';
   }).join('');
-
-  c.innerHTML = ''
-    + '<div class="card"><h2 class="pt">⚙️ Pengaturan</h2></div>'
-    + '<div class="card"><h3 class="st">📅 Tahun Aktif</h3>'
-    + '<div class="row" style="margin-bottom:12px">'
-    + '<input type="number" id="newYear" placeholder="Tahun" style="max-width:220px">'
-    + '<button class="btn primary" id="btnAddYear">➕ Tambah</button>'
-    + '</div>'
-    + '<div class="tbl-wrap"><table><thead><tr><th>Tahun</th><th>Status</th><th>Aksi</th></tr></thead>'
-    + '<tbody>' + yearsHTML + '</tbody></table></div></div>'
+  c.innerHTML = '<div class="card"><h2 class="pt">⚙️ Pengaturan</h2></div>'
+    + '<div class="card"><h3 class="st">📅 Tahun Aktif</h3><div class="row" style="margin-bottom:12px"><input type="number" id="newYear" placeholder="Tahun" style="max-width:220px"><button class="btn primary" id="btnAddYear">➕ Tambah</button></div>'
+    + '<div class="tbl-wrap"><table><thead><tr><th>Tahun</th><th>Status</th><th>Aksi</th></tr></thead><tbody>' + yearsHTML + '</tbody></table></div></div>'
     + '<div class="card"><h3 class="st">👤 Akun Admin</h3>'
     + '<label class="fld"><span>Username</span><input id="setUser" value="' + esc(s.adminUser) + '"></label>'
     + '<label class="fld"><span>Password Baru</span><input type="password" id="setPass" placeholder="Kosongkan bila tidak diubah"></label>'
@@ -1714,8 +1328,7 @@ function pagePengaturan(c){
     + '<label class="fld"><span>Baris 2</span><input id="kop2" value="' + esc(s.kop.line2) + '"></label>'
     + '<label class="fld"><span>Baris 3</span><input id="kop3" value="' + esc(s.kop.line3) + '"></label>'
     + '<label class="fld"><span>URL Logo</span><input id="kopUrl" value="' + esc(s.kop.logo && s.kop.logo.indexOf('data:') === 0 ? '' : (s.kop.logo || '')) + '"></label>'
-    + '<div class="row"><button class="btn" id="btnUploadLogo">📤 Upload Logo</button>'
-    + '<button class="btn ghost" id="btnRemoveLogo">🗑️ Hapus Logo</button></div>'
+    + '<div class="row"><button class="btn" id="btnUploadLogo">📤 Upload Logo</button><button class="btn ghost" id="btnRemoveLogo">🗑️ Hapus Logo</button></div>'
     + '<input type="file" id="logoFile" accept="image/*" class="hidden">'
     + '<div class="row" style="justify-content:flex-end;margin-top:10px"><button class="btn primary" id="btnSaveKop">💾 Simpan Kop</button></div></div>';
 
@@ -1723,6 +1336,7 @@ function pagePengaturan(c){
     var y = parseInt($('#newYear').value, 10);
     if (!y || y < 2000 || y > 2100){ toast('Tahun tidak valid', 'error'); return; }
     if (s.years.some(function(x){ return x.year === y; })){ toast('Tahun sudah ada', 'error'); return; }
+    markLocal();
     s.years.push({ year: y, active: false });
     saveDB(); toast('Tahun ditambahkan', 'success');
     pagePengaturan(c);
@@ -1731,9 +1345,9 @@ function pagePengaturan(c){
   $$('[data-aktif]').forEach(function(b){
     b.addEventListener('click', function(){
       var y = parseInt(b.getAttribute('data-aktif'), 10);
+      markLocal();
       s.years.forEach(function(x){ x.active = (x.year === y); });
-      s.activeYear = y;
-      saveDB(); toast('Tahun aktif: ' + y, 'success');
+      s.activeYear = y; saveDB(); toast('Tahun aktif: ' + y, 'success');
       pagePengaturan(c);
       push({ type: 'saveSettings', row: settingsRow() });
     });
@@ -1742,27 +1356,22 @@ function pagePengaturan(c){
     b.addEventListener('click', function(){
       var y = parseInt(b.getAttribute('data-delyear'), 10);
       if (!confirm('Hapus tahun ' + y + '?')) return;
+      markLocal();
       s.years = s.years.filter(function(x){ return x.year !== y; });
       if (!s.years.some(function(x){ return x.active; }) && s.years[0]) s.years[0].active = true;
       var active = s.years.filter(function(x){ return x.active; })[0] || s.years[0];
-      s.activeYear = active.year;
-      saveDB(); toast('Tahun dihapus', 'success');
+      s.activeYear = active.year; saveDB(); toast('Tahun dihapus', 'success');
       pagePengaturan(c);
       push({ type: 'saveSettings', row: settingsRow() });
     });
   });
   $('#btnSaveAcc').addEventListener('click', function(){
-    var u = $('#setUser').value.trim();
-    var p1 = $('#setPass').value, p2 = $('#setPass2').value;
+    var u = $('#setUser').value.trim(), p1 = $('#setPass').value, p2 = $('#setPass2').value;
     if (!u){ toast('Username wajib', 'error'); return; }
-    if (p1 || p2){
-      if (p1 !== p2){ toast('Password tidak sama', 'error'); return; }
-      if (p1.length < 3){ toast('Password minimal 3', 'error'); return; }
-    }
-    s.adminUser = u;
-    if (p1) s.adminPass = p1;
-    saveDB();
-    push({ type: 'saveSettings', row: settingsRow() });
+    if (p1 || p2){ if (p1 !== p2){ toast('Password tidak sama', 'error'); return; } if (p1.length < 3){ toast('Password minimal 3', 'error'); return; } }
+    markLocal();
+    s.adminUser = u; if (p1) s.adminPass = p1;
+    saveDB(); push({ type: 'saveSettings', row: settingsRow() });
     $('#setPass').value = ''; $('#setPass2').value = '';
     toast('Akun diperbarui', 'success');
   });
@@ -1771,32 +1380,15 @@ function pagePengaturan(c){
     var f = e.target.files[0]; if (!f) return;
     if (f.size > 900 * 1024){ toast('Maksimal 900KB', 'error'); return; }
     var r = new FileReader();
-    r.onload = function(ev){
-      s.kop.logo = ev.target.result; saveDB(); toast('Logo diunggah', 'success');
-      pagePengaturan(c);
-      push({ type: 'saveSettings', row: settingsRow() });
-    };
+    r.onload = function(ev){ markLocal(); s.kop.logo = ev.target.result; saveDB(); toast('Logo diunggah', 'success'); pagePengaturan(c); push({ type: 'saveSettings', row: settingsRow() }); };
     r.readAsDataURL(f);
   });
-  $('#btnRemoveLogo').addEventListener('click', function(){
-    s.kop.logo = ''; saveDB(); toast('Logo dihapus', 'info');
-    pagePengaturan(c);
-    push({ type: 'saveSettings', row: settingsRow() });
-  });
-  $('#kopUrl').addEventListener('change', function(e){
-    var u = e.target.value.trim();
-    if (u){
-      s.kop.logo = u; saveDB(); toast('Logo disimpan', 'success');
-      pagePengaturan(c);
-      push({ type: 'saveSettings', row: settingsRow() });
-    }
-  });
+  $('#btnRemoveLogo').addEventListener('click', function(){ markLocal(); s.kop.logo = ''; saveDB(); toast('Logo dihapus', 'info'); pagePengaturan(c); push({ type: 'saveSettings', row: settingsRow() }); });
+  $('#kopUrl').addEventListener('change', function(e){ var u = e.target.value.trim(); if (u){ markLocal(); s.kop.logo = u; saveDB(); toast('Logo disimpan', 'success'); pagePengaturan(c); push({ type: 'saveSettings', row: settingsRow() }); } });
   $('#btnSaveKop').addEventListener('click', function(){
-    s.kop.line1 = $('#kop1').value.trim();
-    s.kop.line2 = $('#kop2').value.trim();
-    s.kop.line3 = $('#kop3').value.trim();
-    saveDB();
-    push({ type: 'saveSettings', row: settingsRow() });
+    markLocal();
+    s.kop.line1 = $('#kop1').value.trim(); s.kop.line2 = $('#kop2').value.trim(); s.kop.line3 = $('#kop3').value.trim();
+    saveDB(); push({ type: 'saveSettings', row: settingsRow() });
     toast('Kop disimpan', 'success');
   });
 }
@@ -1811,17 +1403,11 @@ function boot(){
     DB.session = loadSession();
     applyTheme();
 
-    /* ---- Inisialisasi history browser ---- */
     var curState = history.state;
     if (!curState || curState.app !== 'odhj'){
       if (DB.session.role && DB.session.role !== 'user'){
         history.replaceState({ app: 'odhj', role: 'user', page: null, depth: 0 }, '');
-        history.pushState({
-          app: 'odhj',
-          role: DB.session.role,
-          page: DB.session.page || null,
-          depth: 1
-        }, '');
+        history.pushState({ app: 'odhj', role: DB.session.role, page: DB.session.page || null, depth: 1 }, '');
       } else {
         history.replaceState({ app: 'odhj', role: 'user', page: null, depth: 0 }, '');
         DB.session = { role: 'user', page: null };
@@ -1831,14 +1417,11 @@ function boot(){
       DB.session = { role: curState.role || 'user', page: curState.page || null };
       persistSession();
     }
-
     render();
   } catch (e){
     console.error('boot error:', e);
     var app = document.getElementById('app');
-    if (app) app.innerHTML = '<div style="padding:40px;color:#e9eefb;font-family:sans-serif">'
-      + '<h2 style="color:#ef4444">Gagal boot</h2>'
-      + '<pre style="background:#1a1a2e;padding:14px;border-radius:10px">' + esc(String(e && e.message || e)) + '</pre></div>';
+    if (app) app.innerHTML = '<div style="padding:40px;color:#e9eefb;font-family:sans-serif"><h2 style="color:#ef4444">Gagal boot</h2><pre style="background:#1a1a2e;padding:14px;border-radius:10px">' + esc(String(e && e.message || e)) + '</pre></div>';
     return;
   }
 
@@ -1846,62 +1429,38 @@ function boot(){
 
   try {
     window.addEventListener('storage', function(e){
-      if (e.key === LS_SESS){
-        DB.session = loadSession();
-        render();
-      } else if (e.key === LS_KEY){
+      if (e.key === LS_SESS){ DB.session = loadSession(); render(); }
+      else if (e.key === LS_KEY){
         try {
           var fresh = migrate(JSON.parse(e.newValue || '{}'));
-          DB.guru = fresh.guru || DB.guru;
-          DB.absensi = fresh.absensi || DB.absensi;
-          DB.settings = fresh.settings || DB.settings;
+          DB.guru = fresh.guru || DB.guru; DB.absensi = fresh.absensi || DB.absensi; DB.settings = fresh.settings || DB.settings;
           softRefresh();
         } catch (err){}
       }
     });
   } catch (e){}
 
-  window.addEventListener('online', function(){
-    if (sb){ flushQueue().then(function(){ return loadAll(false); }); }
-  });
+  window.addEventListener('online', function(){ if (sb){ flushQueue().then(function(){ return loadAll(false); }); } });
 
-  /* ---- Keyboard shortcut ---- */
   document.addEventListener('keydown', function(e){
     var t = e.target;
     var tag = (t && t.tagName || '').toLowerCase();
-    var isField = ['input','textarea','select'].indexOf(tag) !== -1
-               || (t && t.isContentEditable);
-
-    if (e.key === 'Backspace' && !isField
-        && !e.metaKey && !e.ctrlKey && !e.altKey && !e.shiftKey){
-      e.preventDefault();
-      goBack();
-      return;
-    }
-
+    var isField = ['input','textarea','select'].indexOf(tag) !== -1 || (t && t.isContentEditable);
+    if (e.key === 'Backspace' && !isField && !e.metaKey && !e.ctrlKey && !e.altKey && !e.shiftKey){ e.preventDefault(); goBack(); return; }
     if (e.key === 'Escape'){
       var modals = $$('.modal-bg');
-      if (modals.length){
-        modals.forEach(function(m){ m.remove(); });
-        e.preventDefault();
-        return;
-      }
-      if (!isField){
-        e.preventDefault();
-        goBack();
-      }
+      if (modals.length){ modals.forEach(function(m){ m.remove(); }); e.preventDefault(); return; }
+      if (!isField){ e.preventDefault(); goBack(); }
       return;
     }
   });
 
-  /* ---- Tombol Back browser / gesture HP / Alt+← ---- */
   window.addEventListener('popstate', function(e){
     closeModal();
     var st = e.state;
     if (st && st.app === 'odhj'){
       DB.session = { role: st.role || 'user', page: st.page || null };
-      persistSession();
-      render();
+      persistSession(); render();
     }
   });
 }
