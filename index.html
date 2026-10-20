@@ -145,6 +145,24 @@ html[data-theme="light"] .topbar{background:rgba(255,255,255,.75)}
 .rekap-group .grp-badge{font-size:11.5px;padding:3px 10px;border-radius:999px;font-weight:800}
 .grp-ikhwan{background:rgba(34,211,238,.18);color:#22d3ee}
 .grp-akhwat{background:rgba(236,72,153,.18);color:#ec4899}
+/* ---------- Preview di Pengaturan ---------- */
+.setting-preview{background:#fff;color:#000;border:1px solid var(--border);border-radius:12px;padding:22px;font-family:Arial,Helvetica,sans-serif}
+.setting-preview .kop-inner{display:flex;align-items:center;justify-content:center;gap:14px;padding-bottom:12px;border-bottom:2px double #000}
+.setting-preview .kop-inner img{width:56px;height:56px;object-fit:contain;flex:0 0 auto}
+.setting-preview .kop-text{text-align:center;line-height:1.28}
+.setting-preview .kop-text .l1{font-size:12px;font-weight:700}
+.setting-preview .kop-text .l2{font-size:15px;font-weight:800}
+.setting-preview .kop-text .l3{font-size:11px}
+.setting-preview .ttd-preview{display:flex;gap:20px;margin-top:26px;padding-top:10px}
+.setting-preview .ttd-col{flex:0 1 220px;text-align:center;font-size:12px}
+.setting-preview .ttd-col.right{margin-left:auto}
+.setting-preview .ttd-kota{font-size:11.5px;margin-bottom:8px}
+.setting-preview .ttd-role{font-weight:700;font-size:12px}
+.setting-preview .ttd-sub{font-size:11.5px}
+.setting-preview .ttd-space{height:48px}
+.setting-preview .ttd-name{font-weight:700;padding-top:3px;min-height:16px}
+.setting-preview .ttd-empty{text-align:center;padding:22px;color:#888;font-style:italic;font-size:12px}
+/* ---------- Print ---------- */
 #print-root{display:none}
 .pr{background:#fff;color:#000;font-family:Arial,sans-serif;font-size:12px;padding:4px}
 .pr .pr-kop{border-bottom:3px double #000;padding-bottom:10px;margin-bottom:6px}
@@ -160,10 +178,14 @@ html[data-theme="light"] .topbar{background:rgba(255,255,255,.75)}
 .pr table{width:100%;border-collapse:collapse;font-size:11.5px}
 .pr th,.pr td{border:1px solid #333;padding:5px 7px}
 .pr th{background:#eee;text-align:center}
-.pr .ttd{margin-top:34px;display:flex;justify-content:space-between;gap:24px;page-break-inside:avoid}
-.pr .ttd>div{text-align:center;flex:1;max-width:260px}
-.pr .ttd .sp{height:64px}
-.pr .ttd .ttd-name{border-top:1px solid #000;padding-top:3px;font-weight:600;min-height:18px}
+.pr .ttd{margin-top:34px;display:flex;gap:24px;page-break-inside:avoid}
+.pr .ttd-col{flex:0 0 260px;text-align:center;font-size:12px}
+.pr .ttd-col.right{margin-left:auto}
+.pr .ttd-kota{font-size:11.5px;margin-bottom:8px}
+.pr .ttd-role{font-weight:700;font-size:12px}
+.pr .ttd-sub{font-size:11.5px}
+.pr .ttd-space{height:64px}
+.pr .ttd-name{font-weight:700;padding-top:3px;min-height:16px}
 @media print{body{background:#fff}body::before{display:none!important}body>*{display:none!important}#print-root{display:block!important}@page{size:A4;margin:12mm}}
 @media (max-width:900px){.sidebar{position:fixed;left:0;top:0;z-index:50;transform:translateX(-102%);transition:transform .25s ease}.sidebar.open{transform:none}.only-mobile{display:grid}.content{padding:14px}}
 </style>
@@ -249,6 +271,7 @@ function uid(){
 function pad(n){ return String(n).length < 2 ? '0' + n : String(n); }
 function todayStr(){ var d = new Date(); return d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate()); }
 function fmtID(s){ if (!s) return '-'; var d = new Date(s + 'T00:00:00'); return HARI[d.getDay()] + ', ' + d.getDate() + ' ' + BULAN[d.getMonth()] + ' ' + d.getFullYear(); }
+function fmtIDShort(s){ if (!s) return '-'; var d = new Date(s + 'T00:00:00'); return d.getDate() + ' ' + BULAN[d.getMonth()] + ' ' + d.getFullYear(); }
 function fmtShort(s){ if (!s) return '-'; var d = new Date(s + 'T00:00:00'); return pad(d.getDate()) + '/' + pad(d.getMonth() + 1) + '/' + d.getFullYear(); }
 function fmtTime(ts){ var d = new Date(ts); return pad(d.getDate()) + '/' + pad(d.getMonth() + 1) + '/' + d.getFullYear() + ' ' + pad(d.getHours()) + ':' + pad(d.getMinutes()); }
 function lastDayOfMonth(ym){ var a = ym.split('-'); return new Date(parseInt(a[0], 10), parseInt(a[1], 10), 0).getDate(); }
@@ -265,6 +288,8 @@ function defaultDB(){
         line2: 'SEKOLAH ISLAM TERPADU',
         line3: 'Jl. Pendidikan No. 1, Indonesia',
         logo: '',
+        kota: '',
+        kepalaSekolah: '',
         penanggungJawab: ''
       }
     },
@@ -286,7 +311,10 @@ function migrate(d){
   s.theme = s.theme || 'dark';
   if (!Array.isArray(s.years) || !s.years.length) s.years = [{ year: new Date().getFullYear(), active: true }];
   s.activeYear = s.activeYear || s.years[0].year;
-  s.kop = Object.assign({ line1: '', line2: '', line3: '', logo: '', penanggungJawab: '' }, s.kop || {});
+  s.kop = Object.assign({
+    line1: '', line2: '', line3: '', logo: '',
+    kota: '', kepalaSekolah: '', penanggungJawab: ''
+  }, s.kop || {});
   d.guru = Array.isArray(d.guru) ? d.guru : [];
   d.absensi = Array.isArray(d.absensi) ? d.absensi : [];
   return normalizeIds(d);
@@ -407,8 +435,10 @@ function loadAll(initial){
       DB.settings.activeYear = st.active_year || DB.settings.activeYear;
       if (Array.isArray(st.years) && st.years.length) DB.settings.years = st.years;
       if (st.kop && typeof st.kop === 'object'){
-        DB.settings.kop = Object.assign(DB.settings.kop, st.kop);
-        if (typeof DB.settings.kop.penanggungJawab === 'undefined') DB.settings.kop.penanggungJawab = '';
+        DB.settings.kop = Object.assign({
+          line1: '', line2: '', line3: '', logo: '',
+          kota: '', kepalaSekolah: '', penanggungJawab: ''
+        }, st.kop);
       }
     }
     DB.guru = (res[1].data || []).map(function(r){ return { id: r.id, nama: r.nama, jk: r.jk }; });
@@ -1237,7 +1267,7 @@ function tableHTML(rows, type, offset){
       }).join('') + '</tbody></table>';
 }
 
-/* ---------- KOP & TANDA TANGAN (di-center + penanggung jawab) ---------- */
+/* ---------- KOP & TANDA TANGAN ---------- */
 function kopHTML(){
   var k = DB.settings.kop;
   var logo = k.logo ? '<img src="' + esc(k.logo) + '">' : '';
@@ -1249,22 +1279,45 @@ function kopHTML(){
 }
 
 function signatureHTML(){
-  var pj = (DB.settings.kop.penanggungJawab || '').trim();
-  var pjName = pj ? esc(pj) : '(............................)';
-  return '<div class="ttd">'
-    + '<div>'
-    +   '<div>Mengetahui,</div>'
-    +   '<div>Kepala Sekolah</div>'
-    +   '<div class="sp"></div>'
-    +   '<div class="ttd-name">(............................)</div>'
-    + '</div>'
-    + '<div>'
-    +   '<div>Penanggung Jawab,</div>'
-    +   '<div>&nbsp;</div>'
-    +   '<div class="sp"></div>'
-    +   '<div class="ttd-name">' + pjName + '</div>'
-    + '</div>'
-    + '</div>';
+  var k = DB.settings.kop || {};
+  var kepsek = (k.kepalaSekolah || '').trim();
+  var pj = (k.penanggungJawab || '').trim();
+  var kota = (k.kota || '').trim();
+  if (!kepsek && !pj) return '';
+  var today = fmtIDShort(todayStr());
+  var kotaTanggal = kota ? (kota + ', ' + today) : today;
+  var left = kepsek
+    ? '<div class="ttd-col"><div class="ttd-role">Mengetahui,</div><div class="ttd-sub">Kepala Sekolah</div><div class="ttd-space"></div><div class="ttd-name">' + esc(kepsek) + '</div></div>'
+    : '';
+  var right = pj
+    ? '<div class="ttd-col right"><div class="ttd-kota">' + esc(kotaTanggal) + '</div><div class="ttd-role">Penanggung Jawab,</div><div class="ttd-space"></div><div class="ttd-name">' + esc(pj) + '</div></div>'
+    : '';
+  return '<div class="ttd">' + left + right + '</div>';
+}
+
+/* Preview versi pengaturan (live) */
+function renderKopPreview(k){
+  var logo = k.logo ? '<img src="' + esc(k.logo) + '">' : '';
+  var lines = '';
+  if (k.line1) lines += '<div class="l1">' + esc(k.line1) + '</div>';
+  if (k.line2) lines += '<div class="l2">' + esc(k.line2) + '</div>';
+  if (k.line3) lines += '<div class="l3">' + esc(k.line3) + '</div>';
+  var kop = (logo || lines)
+    ? '<div class="kop-inner">' + logo + '<div class="kop-text">' + lines + '</div></div>'
+    : '<div class="kop-inner"><div class="kop-text" style="color:#888;font-style:italic">Kop surat belum diisi</div></div>';
+
+  var today = fmtIDShort(todayStr());
+  var kotaTanggal = k.kota ? (k.kota + ', ' + today) : today;
+  var left = k.kepalaSekolah
+    ? '<div class="ttd-col"><div class="ttd-role">Mengetahui,</div><div class="ttd-sub">Kepala Sekolah</div><div class="ttd-space"></div><div class="ttd-name">' + esc(k.kepalaSekolah) + '</div></div>'
+    : '';
+  var right = k.penanggungJawab
+    ? '<div class="ttd-col right"><div class="ttd-kota">' + esc(kotaTanggal) + '</div><div class="ttd-role">Penanggung Jawab,</div><div class="ttd-space"></div><div class="ttd-name">' + esc(k.penanggungJawab) + '</div></div>'
+    : '';
+  var ttd = (left || right)
+    ? '<div class="ttd-preview">' + left + right + '</div>'
+    : '<div class="ttd-empty">Belum ada penandatangan (isi nama Kepala Sekolah / Penanggung Jawab di bawah)</div>';
+  return kop + ttd;
 }
 
 function printReport(res){
@@ -1292,7 +1345,8 @@ function printReport(res){
   var html = kopHTML()
     + '<h4>' + title + '</h4>'
     + '<div class="sub">Periode: ' + fmtID(res.from) + ' s.d. ' + fmtID(res.to) + ' • Dicetak: ' + fmtID(todayStr()) + '</div>'
-    + summaryLine + body + signatureHTML();
+    + summaryLine + body
+    + signatureHTML();
   $('#print-root').innerHTML = '<div class="pr">' + html + '</div>';
   setTimeout(function(){ try { window.print(); } catch (e){} }, 150);
 }
@@ -1331,31 +1385,82 @@ function pageAbsensi(c){
   paint();
 }
 
-/* ---------- PENGATURAN ---------- */
+/* ================================================================
+   PENGATURAN
+   ================================================================ */
 function pagePengaturan(c){
   var s = DB.settings;
   var yearsHTML = s.years.slice().sort(function(a, b){ return b.year - a.year; }).map(function(y){
     return '<tr><td><b>' + y.year + '</b></td><td>' + (y.active ? '<span class="badge b-tilawah">Aktif</span>' : '<span class="badge b-tidak">Tidak Aktif</span>') + '</td>'
       + '<td class="row" style="gap:6px">' + (y.active ? '' : '<button class="btn sm ok" data-aktif="' + y.year + '">✅ Aktifkan</button>') + (s.years.length > 1 ? '<button class="btn sm danger" data-delyear="' + y.year + '">🗑️</button>' : '') + '</td></tr>';
   }).join('');
-  c.innerHTML = '<div class="card"><h2 class="pt">⚙️ Pengaturan</h2></div>'
-    + '<div class="card"><h3 class="st">📅 Tahun Aktif</h3><div class="row" style="margin-bottom:12px"><input type="number" id="newYear" placeholder="Tahun" style="max-width:220px"><button class="btn primary" id="btnAddYear">➕ Tambah</button></div>'
-    + '<div class="tbl-wrap"><table><thead><tr><th>Tahun</th><th>Status</th><th>Aksi</th></tr></thead><tbody>' + yearsHTML + '</tbody></table></div></div>'
-    + '<div class="card"><h3 class="st">👤 Akun Admin</h3>'
-    + '<label class="fld"><span>Username</span><input id="setUser" value="' + esc(s.adminUser) + '"></label>'
-    + '<label class="fld"><span>Password Baru</span><input type="password" id="setPass" placeholder="Kosongkan bila tidak diubah"></label>'
-    + '<label class="fld"><span>Konfirmasi</span><input type="password" id="setPass2"></label>'
-    + '<div class="row" style="justify-content:flex-end"><button class="btn primary" id="btnSaveAcc">💾 Simpan</button></div></div>'
-    + '<div class="card"><h3 class="st">🖼️ Kop Surat & Tanda Tangan</h3>'
-    + '<label class="fld"><span>Baris 1</span><input id="kop1" value="' + esc(s.kop.line1) + '"></label>'
-    + '<label class="fld"><span>Baris 2</span><input id="kop2" value="' + esc(s.kop.line2) + '"></label>'
-    + '<label class="fld"><span>Baris 3</span><input id="kop3" value="' + esc(s.kop.line3) + '"></label>'
-    + '<label class="fld"><span>Penanggung Jawab Absen</span><input id="kopPJ" value="' + esc(s.kop.penanggungJawab || '') + '" placeholder="Nama penanggung jawab absen"></label>'
-    + '<label class="fld"><span>URL Logo</span><input id="kopUrl" value="' + esc(s.kop.logo && s.kop.logo.indexOf('data:') === 0 ? '' : (s.kop.logo || '')) + '"></label>'
-    + '<div class="row"><button class="btn" id="btnUploadLogo">📤 Upload Logo</button><button class="btn ghost" id="btnRemoveLogo">🗑️ Hapus Logo</button></div>'
-    + '<input type="file" id="logoFile" accept="image/*" class="hidden">'
-    + '<div class="row" style="justify-content:flex-end;margin-top:10px"><button class="btn primary" id="btnSaveKop">💾 Simpan Kop</button></div></div>';
 
+  var initialPreview = {
+    line1: s.kop.line1 || '', line2: s.kop.line2 || '', line3: s.kop.line3 || '',
+    logo: s.kop.logo || '',
+    kota: s.kop.kota || '',
+    kepalaSekolah: s.kop.kepalaSekolah || '',
+    penanggungJawab: s.kop.penanggungJawab || ''
+  };
+
+  c.innerHTML = ''
+    + '<div class="card"><h2 class="pt">⚙️ Pengaturan</h2><p class="muted" style="font-size:13px;margin:4px 0 0">Kelola tahun aktif, akun admin, kop surat, dan penandatangan untuk cetak laporan.</p></div>'
+
+    + '<div class="card"><h3 class="st">👁️ Preview Kop & Tanda Tangan (Cetak)</h3>'
+    +   '<div class="setting-preview" id="kopPreview">' + renderKopPreview(initialPreview) + '</div>'
+    +   '<p class="muted" style="font-size:12px;margin:8px 0 0">Pratinjau ini diperbarui otomatis saat Anda mengetik di bawah.</p>'
+    + '</div>'
+
+    + '<div class="card"><h3 class="st">📅 Tahun Aktif</h3>'
+    +   '<div class="row" style="margin-bottom:12px"><input type="number" id="newYear" placeholder="Tahun" style="max-width:220px"><button class="btn primary" id="btnAddYear">➕ Tambah</button></div>'
+    +   '<div class="tbl-wrap"><table><thead><tr><th>Tahun</th><th>Status</th><th>Aksi</th></tr></thead><tbody>' + yearsHTML + '</tbody></table></div>'
+    + '</div>'
+
+    + '<div class="card"><h3 class="st">👤 Akun Admin</h3>'
+    +   '<label class="fld"><span>Username</span><input id="setUser" value="' + esc(s.adminUser) + '"></label>'
+    +   '<label class="fld"><span>Password Baru</span><input type="password" id="setPass" placeholder="Kosongkan bila tidak diubah"></label>'
+    +   '<label class="fld"><span>Konfirmasi</span><input type="password" id="setPass2"></label>'
+    +   '<div class="row" style="justify-content:flex-end"><button class="btn primary" id="btnSaveAcc">💾 Simpan Akun</button></div>'
+    + '</div>'
+
+    + '<div class="card"><h3 class="st">🖼️ Kop Surat</h3>'
+    +   '<label class="fld"><span>Baris 1</span><input id="kop1" value="' + esc(s.kop.line1) + '"></label>'
+    +   '<label class="fld"><span>Baris 2</span><input id="kop2" value="' + esc(s.kop.line2) + '"></label>'
+    +   '<label class="fld"><span>Baris 3</span><input id="kop3" value="' + esc(s.kop.line3) + '"></label>'
+    +   '<label class="fld"><span>URL Logo</span><input id="kopUrl" value="' + esc(s.kop.logo && s.kop.logo.indexOf('data:') === 0 ? '' : (s.kop.logo || '')) + '" placeholder="https://... atau upload"></label>'
+    +   '<div class="row"><button class="btn" id="btnUploadLogo">📤 Upload Logo</button><button class="btn ghost" id="btnRemoveLogo">🗑️ Hapus Logo</button></div>'
+    +   '<input type="file" id="logoFile" accept="image/*" class="hidden">'
+    + '</div>'
+
+    + '<div class="card"><h3 class="st">✍️ Penandatangan Cetak</h3>'
+    +   '<p class="muted" style="font-size:13px;margin:0 0 12px">Kosongkan nama jika tidak ingin ditampilkan pada cetakan.</p>'
+    +   '<label class="fld"><span>Kota (untuk tanggal cetak)</span><input id="kopKota" value="' + esc(s.kop.kota || '') + '" placeholder="Contoh: Jakarta"></label>'
+    +   '<label class="fld"><span>Nama Kepala Sekolah</span><input id="kopKepsek" value="' + esc(s.kop.kepalaSekolah || '') + '" placeholder="Kosongkan bila tidak ditampilkan"></label>'
+    +   '<label class="fld"><span>Nama Penanggung Jawab Absen</span><input id="kopPJ" value="' + esc(s.kop.penanggungJawab || '') + '" placeholder="Kosongkan bila tidak ditampilkan"></label>'
+    +   '<div class="row" style="justify-content:flex-end;margin-top:8px"><button class="btn primary" id="btnSaveSign">💾 Simpan Penandatangan</button></div>'
+    + '</div>';
+
+  /* ---------- Live preview helper ---------- */
+  function readKopFromForm(){
+    return {
+      line1: $('#kop1').value.trim(),
+      line2: $('#kop2').value.trim(),
+      line3: $('#kop3').value.trim(),
+      logo: DB.settings.kop.logo || '',
+      kota: $('#kopKota').value.trim(),
+      kepalaSekolah: $('#kopKepsek').value.trim(),
+      penanggungJawab: $('#kopPJ').value.trim()
+    };
+  }
+  function refreshPreview(){
+    var box = $('#kopPreview'); if (!box) return;
+    box.innerHTML = renderKopPreview(readKopFromForm());
+  }
+  ['#kop1','#kop2','#kop3','#kopKota','#kopKepsek','#kopPJ'].forEach(function(sel){
+    var el = $(sel); if (el) el.addEventListener('input', refreshPreview);
+  });
+
+  /* ---------- Tahun aktif ---------- */
   $('#btnAddYear').addEventListener('click', function(){
     var y = parseInt($('#newYear').value, 10);
     if (!y || y < 2000 || y > 2100){ toast('Tahun tidak valid', 'error'); return; }
@@ -1389,6 +1494,8 @@ function pagePengaturan(c){
       push({ type: 'saveSettings', row: settingsRow() });
     });
   });
+
+  /* ---------- Akun admin ---------- */
   $('#btnSaveAcc').addEventListener('click', function(){
     var u = $('#setUser').value.trim(), p1 = $('#setPass').value, p2 = $('#setPass2').value;
     if (!u){ toast('Username wajib', 'error'); return; }
@@ -1399,25 +1506,50 @@ function pagePengaturan(c){
     $('#setPass').value = ''; $('#setPass2').value = '';
     toast('Akun diperbarui', 'success');
   });
+
+  /* ---------- Kop (line + logo) ---------- */
   $('#btnUploadLogo').addEventListener('click', function(){ $('#logoFile').click(); });
   $('#logoFile').addEventListener('change', function(e){
     var f = e.target.files[0]; if (!f) return;
     if (f.size > 900 * 1024){ toast('Maksimal 900KB', 'error'); return; }
     var r = new FileReader();
-    r.onload = function(ev){ markLocal(); s.kop.logo = ev.target.result; saveDB(); toast('Logo diunggah', 'success'); pagePengaturan(c); push({ type: 'saveSettings', row: settingsRow() }); };
+    r.onload = function(ev){
+      markLocal();
+      s.kop.logo = ev.target.result;
+      saveDB();
+      refreshPreview();
+      push({ type: 'saveSettings', row: settingsRow() });
+      toast('Logo diunggah', 'success');
+    };
     r.readAsDataURL(f);
   });
-  $('#btnRemoveLogo').addEventListener('click', function(){ markLocal(); s.kop.logo = ''; saveDB(); toast('Logo dihapus', 'info'); pagePengaturan(c); push({ type: 'saveSettings', row: settingsRow() }); });
-  $('#kopUrl').addEventListener('change', function(e){ var u = e.target.value.trim(); if (u){ markLocal(); s.kop.logo = u; saveDB(); toast('Logo disimpan', 'success'); pagePengaturan(c); push({ type: 'saveSettings', row: settingsRow() }); } });
-  $('#btnSaveKop').addEventListener('click', function(){
+  $('#btnRemoveLogo').addEventListener('click', function(){
+    markLocal(); s.kop.logo = ''; saveDB(); refreshPreview();
+    push({ type: 'saveSettings', row: settingsRow() });
+    toast('Logo dihapus', 'info');
+  });
+  $('#kopUrl').addEventListener('change', function(e){
+    var u = e.target.value.trim();
+    if (u){
+      markLocal(); s.kop.logo = u; saveDB(); refreshPreview();
+      push({ type: 'saveSettings', row: settingsRow() });
+      toast('Logo disimpan', 'success');
+    }
+  });
+
+  /* ---------- Penandatangan ---------- */
+  $('#btnSaveSign').addEventListener('click', function(){
     markLocal();
     s.kop.line1 = $('#kop1').value.trim();
     s.kop.line2 = $('#kop2').value.trim();
     s.kop.line3 = $('#kop3').value.trim();
+    s.kop.kota = $('#kopKota').value.trim();
+    s.kop.kepalaSekolah = $('#kopKepsek').value.trim();
     s.kop.penanggungJawab = $('#kopPJ').value.trim();
     saveDB();
+    refreshPreview();
     push({ type: 'saveSettings', row: settingsRow() });
-    toast('Kop & penanggung jawab disimpan', 'success');
+    toast('Kop & penandatangan disimpan', 'success');
   });
 }
 
