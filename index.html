@@ -345,7 +345,7 @@ function persistSession(){
 }
 function navigate(role, page){
   if (DB.session && DB.session.role === role && DB.session.page === (page || null)){
-    return; /* sudah di halaman tujuan */
+    return;
   }
   DB.session = { role: role, page: page || null };
   persistSession();
@@ -359,7 +359,6 @@ function goBack(){
   if (cur && cur.app === 'odhj' && cur.depth > 0){
     history.back();
   } else if (!cur || cur.app !== 'odhj'){
-    /* Tidak ada state app — pulang ke form user */
     DB.session = { role: 'user', page: null };
     persistSession();
     render();
@@ -828,26 +827,16 @@ function renderUserForm(){
     var g = findGuru(gid);
     if (!g) return;
 
-    $('#uSpin').classList.remove('hidden');
-    $('#uTxt').textContent = 'Menyimpan…';
-    btn.disabled = true;
-    busy(true, 'Menyimpan absensi…');
-    setTimeout(function(){
-      var entry = {
-        id: uid(), guruId: gid, nama: g.nama, jk: g.jk,
-        tanggal: tgl, status: status, createdAt: Date.now()
-      };
-      DB.absensi.push(entry);
-      saveDB();
-      push({ type: 'insertAbsensi', row: absensiRow(entry) });
-      busy(false);
-      $('#uSpin').classList.add('hidden');
-      $('#uTxt').textContent = '💾 Kirim Absensi';
-      btn.disabled = false;
-      toast('Berhasil! ' + g.nama + ' — ' + (STATUS_LABEL[status] || status) + ' (' + fmtShort(tgl) + ')', 'success');
-      status = null;
-      renderStatus(); checkDup(); recent();
-    }, 500);
+    var entry = {
+      id: uid(), guruId: gid, nama: g.nama, jk: g.jk,
+      tanggal: tgl, status: status, createdAt: Date.now()
+    };
+    DB.absensi.push(entry);
+    saveDB();
+    push({ type: 'insertAbsensi', row: absensiRow(entry) });
+    toast('Berhasil! ' + g.nama + ' — ' + (STATUS_LABEL[status] || status) + ' (' + fmtShort(tgl) + ')', 'success');
+    status = null;
+    renderStatus(); checkDup(); recent();
   });
 }
 
@@ -890,28 +879,19 @@ function renderLogin(){
     var u = $('#lgUser').value.trim();
     var p = $('#lgPass').value;
     if (!u || !p){ toast('Username dan password wajib diisi', 'error'); return; }
-    $('#lgSpin').classList.remove('hidden');
-    $('#lgTxt').textContent = 'Memeriksa…';
-    $('#lgBtn').disabled = true;
-    setTimeout(function(){
-      if (u === DB.settings.adminUser && p === DB.settings.adminPass){
-        try { localStorage.setItem(LS_USER, u); } catch (e){}
-        toast('Login admin berhasil', 'success');
-        /* Ganti state 'guest' dengan 'admin' agar tombol Back dari admin
-           langsung menuju form user (tidak mampir ke layar login lagi). */
-        var cur = history.state;
-        var depth = (cur && cur.app === 'odhj' && cur.depth != null) ? cur.depth : 1;
-        DB.session = { role: 'admin', page: 'dashboard' };
-        persistSession();
-        history.replaceState({ app: 'odhj', role: 'admin', page: 'dashboard', depth: depth }, '');
-        render();
-      } else {
-        $('#lgSpin').classList.add('hidden');
-        $('#lgTxt').textContent = 'Masuk';
-        $('#lgBtn').disabled = false;
-        toast('Username atau password salah', 'error');
-      }
-    }, 400);
+
+    if (u === DB.settings.adminUser && p === DB.settings.adminPass){
+      try { localStorage.setItem(LS_USER, u); } catch (e){}
+      toast('Login admin berhasil', 'success');
+      var cur = history.state;
+      var depth = (cur && cur.app === 'odhj' && cur.depth != null) ? cur.depth : 1;
+      DB.session = { role: 'admin', page: 'dashboard' };
+      persistSession();
+      history.replaceState({ app: 'odhj', role: 'admin', page: 'dashboard', depth: depth }, '');
+      render();
+    } else {
+      toast('Username atau password salah', 'error');
+    }
   });
 }
 
@@ -922,11 +902,38 @@ function renderAdmin(){
   var page = (DB.session && DB.session.page) || 'dashboard';
   var titles = { dashboard: 'Dashboard', guru: 'Data Guru / Staf', laporan: 'Laporan', absensi: 'Data Absensi', pengaturan: 'Pengaturan' };
   var themeIcon = DB.settings.theme === 'dark' ? '🌙' : '☀️';
+
+  /* ---- Shell reuse: kalau layout admin sudah ada, hanya update konten ---- */
+  var shell = document.querySelector('.layout[data-role="admin"]');
+  if (shell){
+    $$('[data-nav]', shell).forEach(function(a){
+      a.classList.toggle('active', a.getAttribute('data-nav') === page);
+    });
+    var tbTitle = shell.querySelector('.tb-title');
+    if (tbTitle) tbTitle.textContent = titles[page] || 'Dashboard';
+    var tb = shell.querySelector('#btnTheme');
+    if (tb) tb.textContent = themeIcon;
+    var sbEl = shell.querySelector('#sidebar'); if (sbEl) sbEl.classList.remove('open');
+    setSync(ONLINE ? (pendingCount() ? 'pending' : 'synced') : 'offline');
+
+    var c = shell.querySelector('#content');
+    if (c){
+      if (page === 'dashboard') pageDashboard(c);
+      else if (page === 'guru') pageGuru(c);
+      else if (page === 'laporan') pageLaporan(c);
+      else if (page === 'absensi') pageAbsensi(c);
+      else if (page === 'pengaturan') pagePengaturan(c);
+      else pageDashboard(c);
+      return;
+    }
+  }
+
+  /* ---- Full rebuild (pertama kali, atau setelah balik dari form user) ---- */
   function navLink(key, icon, label){
     return '<a data-nav="' + key + '" class="' + (page === key ? 'active' : '') + '"><i>' + icon + '</i>' + label + '</a>';
   }
   var html = [];
-  html.push('<div class="layout">');
+  html.push('<div class="layout" data-role="admin">');
   html.push('<aside class="sidebar" id="sidebar">');
   html.push('<div class="side-brand"><div class="logo">📖</div><div><strong>One Day</strong><span>Half Juz</span></div></div>');
   html.push('<nav class="nav">');
@@ -959,7 +966,6 @@ function renderAdmin(){
   $$('[data-nav]').forEach(function(a){
     a.addEventListener('click', function(){
       navigate('admin', a.getAttribute('data-nav'));
-      var sbEl = $('#sidebar'); if (sbEl) sbEl.classList.remove('open');
     });
   });
   $('#btnBack').addEventListener('click', goBack);
@@ -1114,18 +1120,14 @@ function pageGuru(c){
     if (!guruSelSize()) return;
     if (!confirm('Hapus ' + guruSelSize() + ' data terpilih? Data absensi terkait juga akan dihapus.')) return;
     var ids = guruSelIds();
-    busy(true, 'Menghapus…');
-    setTimeout(function(){
-      DB.guru = DB.guru.filter(function(g){ return !guruSel[g.id]; });
-      DB.absensi = DB.absensi.filter(function(a){ return !guruSel[a.guruId]; });
-      var n = guruSelSize();
-      guruSelClear();
-      saveDB();
-      busy(false);
-      toast(n + ' data dihapus', 'success');
-      pageGuru(c);
-      push({ type: 'deleteGuru', ids: ids });
-    }, 350);
+    DB.guru = DB.guru.filter(function(g){ return !guruSel[g.id]; });
+    DB.absensi = DB.absensi.filter(function(a){ return !guruSel[a.guruId]; });
+    var n = guruSelSize();
+    guruSelClear();
+    saveDB();
+    toast(n + ' data dihapus', 'success');
+    pageGuru(c);
+    push({ type: 'deleteGuru', ids: ids });
   });
   $('#chkAll').addEventListener('change', function(){
     var chk = this.checked;
@@ -1151,16 +1153,12 @@ function pageGuru(c){
       var g = DB.guru.filter(function(x){ return x.id === id; })[0];
       if (!g) return;
       if (!confirm('Hapus "' + g.nama + '"?')) return;
-      busy(true, 'Menghapus…');
-      setTimeout(function(){
-        DB.guru = DB.guru.filter(function(x){ return x.id !== g.id; });
-        DB.absensi = DB.absensi.filter(function(a){ return a.guruId !== g.id; });
-        saveDB();
-        busy(false);
-        toast('Data dihapus', 'success');
-        pageGuru(c);
-        push({ type: 'deleteGuru', ids: [g.id] });
-      }, 300);
+      DB.guru = DB.guru.filter(function(x){ return x.id !== g.id; });
+      DB.absensi = DB.absensi.filter(function(a){ return a.guruId !== g.id; });
+      saveDB();
+      toast('Data dihapus', 'success');
+      pageGuru(c);
+      push({ type: 'deleteGuru', ids: [g.id] });
     });
   });
   $$('.urutInput').forEach(function(inp){
@@ -1518,16 +1516,12 @@ function bindPreviewHandlers(area){
       for (var k = 0; k < DB.absensi.length; k++) if (DB.absensi[k].id === id){ a = DB.absensi[k]; break; }
       if (!a) return;
       if (!confirm('Hapus entri ' + a.nama + ' tanggal ' + fmtShort(a.tanggal) + '?')) return;
-      busy(true, 'Menghapus…');
-      setTimeout(function(){
-        DB.absensi = DB.absensi.filter(function(x){ return x.id !== a.id; });
-        saveDB();
-        busy(false);
-        toast('Entri dihapus', 'success');
-        push({ type: 'deleteAbsensi', ids: [a.id] });
-        repState.result = buildResult();
-        paintPreview();
-      }, 300);
+      DB.absensi = DB.absensi.filter(function(x){ return x.id !== a.id; });
+      saveDB();
+      toast('Entri dihapus', 'success');
+      push({ type: 'deleteAbsensi', ids: [a.id] });
+      repState.result = buildResult();
+      paintPreview();
     });
   });
 }
@@ -1668,13 +1662,10 @@ function pageAbsensi(c){
         var a = null;
         for (var k = 0; k < DB.absensi.length; k++) if (DB.absensi[k].id === id){ a = DB.absensi[k]; break; }
         if (!a || !confirm('Hapus entri ' + a.nama + '?')) return;
-        busy(true, 'Menghapus…');
-        setTimeout(function(){
-          DB.absensi = DB.absensi.filter(function(x){ return x.id !== a.id; });
-          saveDB(); busy(false); toast('Entri dihapus', 'success');
-          push({ type: 'deleteAbsensi', ids: [a.id] });
-          paint();
-        }, 300);
+        DB.absensi = DB.absensi.filter(function(x){ return x.id !== a.id; });
+        saveDB(); toast('Entri dihapus', 'success');
+        push({ type: 'deleteAbsensi', ids: [a.id] });
+        paint();
       });
     });
   }
@@ -1684,13 +1675,10 @@ function pageAbsensi(c){
     var n = DB.absensi.filter(function(a){ return a.tanggal >= f && a.tanggal <= t; }).length;
     if (!n){ toast('Tidak ada entri', 'info'); return; }
     if (!confirm('Hapus ' + n + ' entri?')) return;
-    busy(true, 'Menghapus…');
-    setTimeout(function(){
-      DB.absensi = DB.absensi.filter(function(a){ return a.tanggal < f || a.tanggal > t; });
-      saveDB(); busy(false); toast(n + ' entri dihapus', 'success');
-      push({ type: 'deleteAbsensiRange', from: f, to: t });
-      paint();
-    }, 350);
+    DB.absensi = DB.absensi.filter(function(a){ return a.tanggal < f || a.tanggal > t; });
+    saveDB(); toast(n + ' entri dihapus', 'success');
+    push({ type: 'deleteAbsensiRange', from: f, to: t });
+    paint();
   });
   paint();
 }
@@ -1827,8 +1815,6 @@ function boot(){
     var curState = history.state;
     if (!curState || curState.app !== 'odhj'){
       if (DB.session.role && DB.session.role !== 'user'){
-        /* Sesi admin dipulihkan → taruh user sebagai base,
-           admin di atasnya agar tombol Back langsung menuju form user. */
         history.replaceState({ app: 'odhj', role: 'user', page: null, depth: 0 }, '');
         history.pushState({
           app: 'odhj',
@@ -1856,10 +1842,8 @@ function boot(){
     return;
   }
 
-  /* Hubungkan ke Supabase */
   setTimeout(initSupabase, 60);
 
-  /* Sinkron antar-tab pada browser yang sama */
   try {
     window.addEventListener('storage', function(e){
       if (e.key === LS_SESS){
@@ -1881,9 +1865,7 @@ function boot(){
     if (sb){ flushQueue().then(function(){ return loadAll(false); }); }
   });
 
-  /* ---- Keyboard shortcut ----
-     Alt+← / Cmd+[ / Cmd+←  ditangani browser → memicu popstate.
-     Backspace (di luar input) & Escape ditangani manual. */
+  /* ---- Keyboard shortcut ---- */
   document.addEventListener('keydown', function(e){
     var t = e.target;
     var tag = (t && t.tagName || '').toLowerCase();
